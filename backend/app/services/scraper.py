@@ -20,8 +20,8 @@ log = logging.getLogger(__name__)
 
 _DETAIL_URL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
 _HEADERS = linkedin._HEADERS
-_CONCURRENCY = 3
-_DESC_DELAY = 0.8
+_CONCURRENCY = 2
+_DESC_DELAY = 2.0
 
 
 def _extract_job_id(url: str) -> str | None:
@@ -79,9 +79,10 @@ async def run_scrape(keywords: str, max_pages: int, db: AsyncSession) -> dict:
     inserted = skipped = 0
     for listing, raw_desc in zip(listings, descriptions):
         skills = nlp.extract_skills(raw_desc)
+        row = {**listing, "raw_description": raw_desc, "skills": skills}
         stmt = (
             pg_insert(JobPosting)
-            .values(**listing, raw_description=raw_desc, skills=skills)
+            .values(**row)
             .on_conflict_do_nothing(index_elements=["source_url"])
         )
         result = await db.execute(stmt)
