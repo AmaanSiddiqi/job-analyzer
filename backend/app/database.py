@@ -2,9 +2,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 import os
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+asyncpg://postgres:postgres@localhost:5432/jobanalyzer",
+_raw = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/jobanalyzer")
+
+# Railway (and many providers) emit postgres:// or postgresql:// — asyncpg needs the +asyncpg driver prefix
+DATABASE_URL = (
+    _raw.replace("postgres://", "postgresql+asyncpg://", 1)
+    if _raw.startswith("postgres://")
+    else _raw.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if _raw.startswith("postgresql://")
+    else _raw
 )
 
 engine = create_async_engine(DATABASE_URL, echo=False)
