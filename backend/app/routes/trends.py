@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models import JobPosting
-from ..schemas import SkillTrendsResponse, SkillTrend, RoleTrendsResponse, RoleTrend
+from ..schemas import SkillTrendsResponse, SkillTrend, RoleTrendsResponse, RoleTrend, StatsResponse
 
 router = APIRouter(prefix="/trends", tags=["trends"])
 
@@ -49,3 +49,14 @@ async def trends_roles(
     result = await db.execute(stmt)
     top_roles = [RoleTrend(title=row.title, count=row.count) for row in result.all()]
     return RoleTrendsResponse(total_jobs=await _total_jobs(db), top_roles=top_roles)
+
+
+@router.get("/stats", response_model=StatsResponse)
+async def get_stats(db: AsyncSession = Depends(get_db)):
+    """Summary stats for the dashboard header."""
+    total_jobs = await db.scalar(select(func.count()).select_from(JobPosting)) or 0
+    total_companies = await db.scalar(
+        select(func.count(func.distinct(JobPosting.company))).select_from(JobPosting)
+    ) or 0
+    last_scraped = await db.scalar(select(func.max(JobPosting.date_scraped)).select_from(JobPosting))
+    return StatsResponse(total_jobs=total_jobs, total_companies=total_companies, last_scraped=last_scraped)

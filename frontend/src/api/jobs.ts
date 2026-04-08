@@ -31,6 +31,12 @@ export interface RoleTrendsResponse {
   top_roles: RoleTrend[];
 }
 
+export interface StatsResponse {
+  total_jobs: number;
+  total_companies: number;
+  last_scraped: string | null;
+}
+
 export interface ScrapeResponse {
   fetched: number;
   inserted: number;
@@ -45,6 +51,9 @@ export const fetchSkillTrends = (top_n = 20) =>
 
 export const fetchRoleTrends = (top_n = 15) =>
   api.get<RoleTrendsResponse>("/trends/roles", { params: { top_n } }).then((r) => r.data);
+
+export const fetchStats = () =>
+  api.get<StatsResponse>("/trends/stats").then((r) => r.data);
 
 export const triggerScrape = (keywords: string, max_pages = 2) =>
   api.post<ScrapeResponse>("/scrape", { keywords, max_pages }).then((r) => r.data);

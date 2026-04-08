@@ -40,3 +40,9 @@ class SkillTrendsResponse(BaseModel):
 class RoleTrendsResponse(BaseModel):
     total_jobs: int
     top_roles: list[RoleTrend]
+
+
+class StatsResponse(BaseModel):
+    total_jobs: int
+    total_companies: int
+    last_scraped: datetime | None

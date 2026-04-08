@@ -54,15 +54,23 @@ async def _fetch_description(source_url: str, client: httpx.AsyncClient, sem: as
         log.warning("could not extract job_id from %s", source_url)
         return ""
     async with sem:
-        try:
-            resp = await client.get(_DETAIL_URL.format(job_id=job_id))
-            await asyncio.sleep(_DESC_DELAY)
-            log.info("description fetch %s → %s (%d chars)", job_id, resp.status_code, len(resp.text))
-            if resp.status_code == 200:
-                return _parse_description(resp.text)
-            log.warning("non-200 for job %s: %s", job_id, resp.status_code)
-        except httpx.HTTPError as e:
-            log.warning("HTTP error fetching description for %s: %s", job_id, e)
+        for attempt in range(3):
+            try:
+                resp = await client.get(_DETAIL_URL.format(job_id=job_id))
+                await asyncio.sleep(_DESC_DELAY)
+                log.info("description fetch %s → %s (%d chars)", job_id, resp.status_code, len(resp.text))
+                if resp.status_code == 200:
+                    return _parse_description(resp.text)
+                if resp.status_code == 429:
+                    wait = 5 * (2 ** attempt)
+                    log.warning("429 for job %s — backing off %ds", job_id, wait)
+                    await asyncio.sleep(wait)
+                    continue
+                log.warning("non-200 for job %s: %s", job_id, resp.status_code)
+                break
+            except httpx.HTTPError as e:
+                log.warning("HTTP error fetching description for %s: %s", job_id, e)
+                break
     return ""
 
 
