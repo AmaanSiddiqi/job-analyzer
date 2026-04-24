@@ -46,3 +46,17 @@ class StatsResponse(BaseModel):
     total_jobs: int
     total_companies: int
     last_scraped: datetime | None
+
+
+class SkillWeekPoint(BaseModel):
+    week: datetime
+    count: int
+
+
+class SkillHistorySeries(BaseModel):
+    skill: str
+    data: list[SkillWeekPoint]
+
+
+class SkillHistoryResponse(BaseModel):
+    series: list[SkillHistorySeries]

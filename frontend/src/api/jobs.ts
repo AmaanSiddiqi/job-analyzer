@@ -57,3 +57,25 @@ export const fetchStats = () =>
 
 export const triggerScrape = (keywords: string, max_pages = 2) =>
   api.post<ScrapeResponse>("/scrape", { keywords, max_pages }).then((r) => r.data);
+
+export interface SkillWeekPoint {
+  week: string;
+  count: number;
+}
+
+export interface SkillHistorySeries {
+  skill: string;
+  data: SkillWeekPoint[];
+}
+
+export interface SkillHistoryResponse {
+  series: SkillHistorySeries[];
+}
+
+export const fetchSkillHistory = (skills: string[], weeks = 8) =>
+  api
+    .get<SkillHistoryResponse>("/trends/skills/history", {
+      params: { skills, weeks },
+      paramsSerializer: { indexes: null },
+    })
+    .then((r) => r.data);

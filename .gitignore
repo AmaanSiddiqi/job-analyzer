@@ -22,3 +22,9 @@ frontend/.vite/
 # IDE
 .vscode/
 .idea/
+
+# Claude Code
+CLAUDE.md
+
+# Test venv (not the canonical .venv)
+backend/.testvenv/
