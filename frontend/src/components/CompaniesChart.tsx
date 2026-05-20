@@ -1,12 +1,16 @@
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip,
+  BarChart, Bar, XAxis, YAxis, Tooltip, Cell,
   ResponsiveContainer, LabelList,
 } from "recharts";
 import { CompanyTrend } from "../api/jobs";
 
-interface Props { data: CompanyTrend[] }
+interface Props {
+  data: CompanyTrend[];
+  activeCompany?: string | null;
+  onBarClick?: (company: string) => void;
+}
 
-export default function CompaniesChart({ data }: Props) {
+export default function CompaniesChart({ data, activeCompany, onBarClick }: Props) {
   if (!data.length) return (
     <div className="flex items-center justify-center h-64 text-slate-400 text-sm">
       No data yet — trigger a scrape to populate.
@@ -30,8 +34,20 @@ export default function CompaniesChart({ data }: Props) {
           formatter={(v: number) => [v, "postings"]}
           contentStyle={{ fontSize: 13, borderRadius: 8, border: "1px solid #e2e8f0", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
         />
-        <Bar dataKey="count" fill="#f59e0b" radius={[0, 4, 4, 0]} maxBarSize={22}>
+        <Bar
+          dataKey="count"
+          radius={[0, 4, 4, 0]}
+          maxBarSize={22}
+          cursor={onBarClick ? "pointer" : undefined}
+          onClick={(entry) => onBarClick?.(entry.company)}
+        >
           <LabelList dataKey="count" position="right" style={{ fontSize: 11, fill: "#f59e0b", fontWeight: 600 }} />
+          {data.map((entry) => (
+            <Cell
+              key={entry.company}
+              fill={activeCompany === entry.company ? "#b45309" : "#f59e0b"}
+            />
+          ))}
         </Bar>
       </BarChart>
     </ResponsiveContainer>

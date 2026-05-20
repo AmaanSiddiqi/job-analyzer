@@ -14,11 +14,14 @@ async def list_jobs(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     location: str | None = Query(None),
+    company: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     stmt = select(JobPosting).order_by(JobPosting.date_scraped.desc())
     if location:
         stmt = stmt.where(func.lower(JobPosting.location).contains(location.lower()))
+    if company:
+        stmt = stmt.where(func.lower(JobPosting.company) == company.lower())
     stmt = stmt.offset(skip).limit(limit)
     result = await db.execute(stmt)
     return result.scalars().all()

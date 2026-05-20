@@ -53,7 +53,7 @@ export interface ScrapeResponse {
   skipped: number;
 }
 
-export const fetchJobs = (params?: { skip?: number; limit?: number; location?: string }) =>
+export const fetchJobs = (params?: { skip?: number; limit?: number; location?: string; company?: string }) =>
   api.get<JobPosting[]>("/jobs", { params }).then((r) => r.data);
 
 export const fetchSkillTrends = (top_n = 20) =>

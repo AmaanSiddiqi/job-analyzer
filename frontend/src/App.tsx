@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import SkillsChart from "./components/SkillsChart";
 import RolesChart from "./components/RolesChart";
 import CompaniesChart from "./components/CompaniesChart";
@@ -35,6 +35,7 @@ function StatCard({ label, value }: { label: string; value: string }) {
 
 export default function App() {
   const [jobs, setJobs] = useState<JobPosting[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(false);
   const [skills, setSkills] = useState<SkillTrend[]>([]);
   const [roles, setRoles] = useState<RoleTrend[]>([]);
   const [companies, setCompanies] = useState<CompanyTrend[]>([]);
@@ -42,23 +43,31 @@ export default function App() {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [dataLoading, setDataLoading] = useState(true);
 
+  const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
+
   const [keywords, setKeywords] = useState("software engineer");
+  const [scrapeCompany, setScrapeCompany] = useState("");
   const [scrapeStatus, setScrapeStatus] = useState<ScrapeStatus>("idle");
   const [scrapeResult, setScrapeResult] = useState<string>("");
   const [bulkStatus, setBulkStatus] = useState<BulkStatus>("idle");
 
-  const loadData = () => {
+  const loadJobs = useCallback((company?: string | null) => {
+    setJobsLoading(true);
+    fetchJobs({ limit: 200, company: company ?? undefined })
+      .then(setJobs)
+      .finally(() => setJobsLoading(false));
+  }, []);
+
+  const loadData = useCallback(() => {
     setDataLoading(true);
     Promise.all([
-      fetchJobs({ limit: 50 }),
       fetchSkillTrends(20),
       fetchRoleTrends(15),
       fetchCompanyTrends(15),
       fetchSkillHistory([], 8),
       fetchStats(),
     ])
-      .then(([jobsData, skillsData, rolesData, companiesData, historyData, statsData]) => {
-        setJobs(jobsData);
+      .then(([skillsData, rolesData, companiesData, historyData, statsData]) => {
         setSkills(skillsData.top_skills);
         setRoles(rolesData.top_roles);
         setCompanies(companiesData.top_companies);
@@ -66,17 +75,32 @@ export default function App() {
         setStats(statsData);
       })
       .finally(() => setDataLoading(false));
-  };
+    loadJobs(selectedCompany);
+  }, [loadJobs, selectedCompany]);
 
   useEffect(() => {
     loadData();
   }, []);
 
+  const handleCompanyClick = (company: string) => {
+    const next = selectedCompany === company ? null : company;
+    setSelectedCompany(next);
+    loadJobs(next);
+  };
+
+  const clearCompanyFilter = () => {
+    setSelectedCompany(null);
+    loadJobs(null);
+  };
+
   const handleScrape = async () => {
     setScrapeStatus("loading");
     setScrapeResult("");
+    const kw = scrapeCompany.trim()
+      ? `${keywords} ${scrapeCompany.trim()}`
+      : keywords;
     try {
-      const result = await triggerScrape(keywords, 2);
+      const result = await triggerScrape(kw, 2);
       setScrapeResult(`+${result.inserted} new · ${result.skipped} dupes · ${result.fetched} fetched`);
       setScrapeStatus("done");
       loadData();
@@ -113,13 +137,20 @@ export default function App() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
             <input
               type="text"
               value={keywords}
               onChange={(e) => setKeywords(e.target.value)}
               placeholder="keywords…"
-              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-48 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+            <input
+              type="text"
+              value={scrapeCompany}
+              onChange={(e) => setScrapeCompany(e.target.value)}
+              placeholder="company (optional)…"
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-44 focus:outline-none focus:ring-2 focus:ring-indigo-400"
             />
             <button
               onClick={handleScrape}
@@ -134,7 +165,7 @@ export default function App() {
               title="Scrape all preset keywords across Canada at high page depth — runs in background"
               className="bg-gray-700 hover:bg-gray-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors"
             >
-              {bulkStatus === "loading" ? "Starting…" : bulkStatus === "started" ? "Running in background" : "Full scrape"}
+              {bulkStatus === "loading" ? "Starting…" : bulkStatus === "started" ? "Running in bg…" : "Full scrape"}
             </button>
             {scrapeResult && (
               <span className={`text-xs ${scrapeStatus === "error" ? "text-red-500" : "text-gray-500"}`}>
@@ -184,15 +215,35 @@ export default function App() {
 
               <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
                 <h2 className="text-base font-semibold text-gray-800 mb-1">Most Active Companies</h2>
-                <p className="text-xs text-gray-400 mb-4">Companies with the most postings indexed</p>
-                <CompaniesChart data={companies} />
+                <p className="text-xs text-gray-400 mb-4">Click a bar to filter postings by company</p>
+                <CompaniesChart
+                  data={companies}
+                  activeCompany={selectedCompany}
+                  onBarClick={handleCompanyClick}
+                />
               </section>
             </div>
 
             {/* Job table */}
             <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-              <h2 className="text-base font-semibold text-gray-800 mb-4">Recent Postings</h2>
-              <JobTable jobs={jobs} />
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-base font-semibold text-gray-800">
+                  {selectedCompany ? `Postings — ${selectedCompany}` : "Recent Postings"}
+                </h2>
+                {selectedCompany && (
+                  <button
+                    onClick={clearCompanyFilter}
+                    className="flex items-center gap-1.5 text-xs bg-amber-100 text-amber-800 px-3 py-1 rounded-full hover:bg-amber-200 transition-colors"
+                  >
+                    {selectedCompany} <span className="font-bold">×</span>
+                  </button>
+                )}
+              </div>
+              {jobsLoading ? (
+                <p className="text-gray-400 text-sm py-4">Loading…</p>
+              ) : (
+                <JobTable jobs={jobs} />
+              )}
             </section>
           </>
         )}
