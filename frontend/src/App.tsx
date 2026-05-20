@@ -12,6 +12,7 @@ import {
   fetchSkillHistory,
   fetchStats,
   triggerScrape,
+  triggerBulkScrape,
   JobPosting,
   SkillTrend,
   RoleTrend,
@@ -21,6 +22,7 @@ import {
 } from "./api/jobs";
 
 type ScrapeStatus = "idle" | "loading" | "done" | "error";
+type BulkStatus = "idle" | "loading" | "started";
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
@@ -43,6 +45,7 @@ export default function App() {
   const [keywords, setKeywords] = useState("software engineer");
   const [scrapeStatus, setScrapeStatus] = useState<ScrapeStatus>("idle");
   const [scrapeResult, setScrapeResult] = useState<string>("");
+  const [bulkStatus, setBulkStatus] = useState<BulkStatus>("idle");
 
   const loadData = () => {
     setDataLoading(true);
@@ -83,6 +86,16 @@ export default function App() {
     }
   };
 
+  const handleBulkScrape = async () => {
+    setBulkStatus("loading");
+    try {
+      await triggerBulkScrape(10);
+      setBulkStatus("started");
+    } catch {
+      setBulkStatus("idle");
+    }
+  };
+
   const lastScraped = stats?.last_scraped
     ? new Date(stats.last_scraped).toLocaleString("en-CA", {
         month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
@@ -94,9 +107,9 @@ export default function App() {
       <header className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Vancouver Job Analyzer</h1>
+            <h1 className="text-xl font-bold text-gray-900">Canada Job Analyzer</h1>
             <p className="text-sm text-gray-500 mt-0.5">
-              Tracks Vancouver tech hiring trends — auto-scraped every 6 hours
+              Tracks Canadian tech hiring trends — auto-scraped every 6 hours
             </p>
           </div>
 
@@ -114,6 +127,14 @@ export default function App() {
               className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors"
             >
               {scrapeStatus === "loading" ? "Scraping…" : "Scrape now"}
+            </button>
+            <button
+              onClick={handleBulkScrape}
+              disabled={bulkStatus === "loading" || bulkStatus === "started"}
+              title="Scrape all preset keywords across Canada at high page depth — runs in background"
+              className="bg-gray-700 hover:bg-gray-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors"
+            >
+              {bulkStatus === "loading" ? "Starting…" : bulkStatus === "started" ? "Running in background" : "Full scrape"}
             </button>
             {scrapeResult && (
               <span className={`text-xs ${scrapeStatus === "error" ? "text-red-500" : "text-gray-500"}`}>

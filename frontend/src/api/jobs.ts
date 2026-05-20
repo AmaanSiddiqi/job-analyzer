@@ -68,8 +68,18 @@ export const fetchCompanyTrends = (top_n = 15) =>
 export const fetchStats = () =>
   api.get<StatsResponse>("/trends/stats").then((r) => r.data);
 
-export const triggerScrape = (keywords: string, max_pages = 2) =>
-  api.post<ScrapeResponse>("/scrape", { keywords, max_pages }).then((r) => r.data);
+export const triggerScrape = (keywords: string, max_pages = 2, location = "Canada") =>
+  api.post<ScrapeResponse>("/scrape", { keywords, max_pages, location }).then((r) => r.data);
+
+export interface BulkScrapeStarted {
+  status: string;
+  keywords: string[];
+  max_pages: number;
+  location: string;
+}
+
+export const triggerBulkScrape = (max_pages = 10, location = "Canada") =>
+  api.post<BulkScrapeStarted>("/scrape/bulk", { max_pages, location }).then((r) => r.data);
 
 export interface SkillWeekPoint {
   week: string;

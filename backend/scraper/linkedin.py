@@ -16,7 +16,7 @@ from bs4 import BeautifulSoup, Tag
 
 SEARCH_URL = (
     "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
-    "?keywords={keywords}&location=Vancouver%2C+BC&start={start}"
+    "?keywords={keywords}&location={location}&start={start}"
 )
 
 # Mimic a real browser to avoid 429s
@@ -74,20 +74,23 @@ def _parse_cards(html: str) -> list[dict]:
 async def scrape(
     keywords: str,
     max_pages: int = 4,
+    location: str = "Canada",
 ) -> list[dict]:
     """
-    Fetch up to `max_pages` pages of job listings for `keywords` in Vancouver.
+    Fetch up to `max_pages` pages of job listings for `keywords`.
 
     Args:
         keywords: Search query, e.g. "software engineer" or "data analyst".
         max_pages: Hard cap on pages fetched (25 results each).
+        location: LinkedIn location string, e.g. "Canada" or "Vancouver%2C+BC".
 
     Returns:
         List of job dicts with keys: title, company, location, source_url,
         raw_description (empty — fill via detail scrape), skills (empty).
     """
     all_jobs: list[dict] = []
-    encoded = keywords.replace(" ", "%20")
+    encoded_kw = keywords.replace(" ", "%20")
+    encoded_loc = location.replace(" ", "%20").replace(",", "%2C")
 
     async with httpx.AsyncClient(
         headers=_HEADERS,
@@ -96,7 +99,7 @@ async def scrape(
     ) as client:
         for page in range(max_pages):
             start = page * _PAGE_SIZE
-            url = SEARCH_URL.format(keywords=encoded, start=start)
+            url = SEARCH_URL.format(keywords=encoded_kw, location=encoded_loc, start=start)
 
             resp = await client.get(url)
             if resp.status_code == 429:

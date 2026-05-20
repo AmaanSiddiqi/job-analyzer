@@ -74,9 +74,9 @@ async def _fetch_description(source_url: str, client: httpx.AsyncClient, sem: as
     return ""
 
 
-async def run_scrape(keywords: str, max_pages: int, db: AsyncSession) -> dict:
+async def run_scrape(keywords: str, max_pages: int, db: AsyncSession, location: str = "Canada") -> dict:
     """Scrape `keywords`, enrich descriptions, extract skills, upsert to DB."""
-    listings = await linkedin.scrape(keywords, max_pages)
+    listings = await linkedin.scrape(keywords, max_pages, location=location)
 
     sem = asyncio.Semaphore(_CONCURRENCY)
     async with httpx.AsyncClient(headers=_HEADERS, follow_redirects=True, timeout=20) as client:

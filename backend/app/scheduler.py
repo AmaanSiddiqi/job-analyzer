@@ -24,16 +24,19 @@ KEYWORDS = [
 _scheduler = AsyncIOScheduler(timezone="America/Vancouver")
 
 
+_LOCATION = "Canada"
+
+
 async def _scrape_all() -> None:
-    log.info("Scheduled scrape starting — %d keywords", len(KEYWORDS))
+    log.info("Scheduled scrape starting — %d keywords @ %s", len(KEYWORDS), _LOCATION)
     for keyword in KEYWORDS:
         try:
             async with AsyncSessionLocal() as db:
-                result = await run_scrape(keyword, max_pages=2, db=db)
+                result = await run_scrape(keyword, max_pages=4, db=db, location=_LOCATION)
             log.info("  '%s' → inserted=%d skipped=%d", keyword, result["inserted"], result["skipped"])
         except Exception:
             log.exception("  '%s' failed", keyword)
-        await asyncio.sleep(2)  # brief pause between keywords
+        await asyncio.sleep(3)
     log.info("Scheduled scrape complete")
 
 
