@@ -48,6 +48,16 @@ class StatsResponse(BaseModel):
     last_scraped: datetime | None
 
 
+class CompanyTrend(BaseModel):
+    company: str
+    count: int
+
+
+class CompanyTrendsResponse(BaseModel):
+    total_jobs: int
+    top_companies: list[CompanyTrend]
+
+
 class SkillWeekPoint(BaseModel):
     week: datetime
     count: int

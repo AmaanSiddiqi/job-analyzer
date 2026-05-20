@@ -9,6 +9,7 @@ from ..models import JobPosting
 from ..schemas import (
     SkillTrendsResponse, SkillTrend,
     RoleTrendsResponse, RoleTrend,
+    CompanyTrendsResponse, CompanyTrend,
     StatsResponse,
     SkillHistoryResponse, SkillHistorySeries, SkillWeekPoint,
 )
@@ -56,6 +57,23 @@ async def trends_roles(
     result = await db.execute(stmt)
     top_roles = [RoleTrend(title=row.title, count=row.count) for row in result.all()]
     return RoleTrendsResponse(total_jobs=await _total_jobs(db), top_roles=top_roles)
+
+
+@router.get("/companies", response_model=CompanyTrendsResponse)
+async def trends_companies(
+    top_n: int = Query(15, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    """Most active hiring companies across all indexed postings."""
+    stmt = (
+        select(JobPosting.company, func.count().label("count"))
+        .group_by(JobPosting.company)
+        .order_by(text("count DESC"))
+        .limit(top_n)
+    )
+    result = await db.execute(stmt)
+    top_companies = [CompanyTrend(company=row.company, count=row.count) for row in result.all()]
+    return CompanyTrendsResponse(total_jobs=await _total_jobs(db), top_companies=top_companies)
 
 
 @router.get("/stats", response_model=StatsResponse)

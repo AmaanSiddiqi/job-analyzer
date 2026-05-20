@@ -37,6 +37,16 @@ export interface StatsResponse {
   last_scraped: string | null;
 }
 
+export interface CompanyTrend {
+  company: string;
+  count: number;
+}
+
+export interface CompanyTrendsResponse {
+  total_jobs: number;
+  top_companies: CompanyTrend[];
+}
+
 export interface ScrapeResponse {
   fetched: number;
   inserted: number;
@@ -51,6 +61,9 @@ export const fetchSkillTrends = (top_n = 20) =>
 
 export const fetchRoleTrends = (top_n = 15) =>
   api.get<RoleTrendsResponse>("/trends/roles", { params: { top_n } }).then((r) => r.data);
+
+export const fetchCompanyTrends = (top_n = 15) =>
+  api.get<CompanyTrendsResponse>("/trends/companies", { params: { top_n } }).then((r) => r.data);
 
 export const fetchStats = () =>
   api.get<StatsResponse>("/trends/stats").then((r) => r.data);

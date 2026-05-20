@@ -1,18 +1,21 @@
 import { useEffect, useState } from "react";
 import SkillsChart from "./components/SkillsChart";
 import RolesChart from "./components/RolesChart";
+import CompaniesChart from "./components/CompaniesChart";
 import JobTable from "./components/JobTable";
 import SkillHistoryChart from "./components/SkillHistoryChart";
 import {
   fetchJobs,
   fetchSkillTrends,
   fetchRoleTrends,
+  fetchCompanyTrends,
   fetchSkillHistory,
   fetchStats,
   triggerScrape,
   JobPosting,
   SkillTrend,
   RoleTrend,
+  CompanyTrend,
   SkillHistorySeries,
   StatsResponse,
 } from "./api/jobs";
@@ -32,6 +35,7 @@ export default function App() {
   const [jobs, setJobs] = useState<JobPosting[]>([]);
   const [skills, setSkills] = useState<SkillTrend[]>([]);
   const [roles, setRoles] = useState<RoleTrend[]>([]);
+  const [companies, setCompanies] = useState<CompanyTrend[]>([]);
   const [history, setHistory] = useState<SkillHistorySeries[]>([]);
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [dataLoading, setDataLoading] = useState(true);
@@ -46,13 +50,15 @@ export default function App() {
       fetchJobs({ limit: 50 }),
       fetchSkillTrends(20),
       fetchRoleTrends(15),
+      fetchCompanyTrends(15),
       fetchSkillHistory([], 8),
       fetchStats(),
     ])
-      .then(([jobsData, skillsData, rolesData, historyData, statsData]) => {
+      .then(([jobsData, skillsData, rolesData, companiesData, historyData, statsData]) => {
         setJobs(jobsData);
         setSkills(skillsData.top_skills);
         setRoles(rolesData.top_roles);
+        setCompanies(companiesData.top_companies);
         setHistory(historyData.series);
         setStats(statsData);
       })
@@ -142,7 +148,7 @@ export default function App() {
             </section>
 
             {/* Bar charts row */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
                 <h2 className="text-base font-semibold text-gray-800 mb-1">Top Skills in Demand</h2>
                 <p className="text-xs text-gray-400 mb-4">All-time frequency across indexed postings</p>
@@ -153,6 +159,12 @@ export default function App() {
                 <h2 className="text-base font-semibold text-gray-800 mb-1">Most Common Roles</h2>
                 <p className="text-xs text-gray-400 mb-4">Most frequently posted job titles</p>
                 <RolesChart data={roles} />
+              </section>
+
+              <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                <h2 className="text-base font-semibold text-gray-800 mb-1">Most Active Companies</h2>
+                <p className="text-xs text-gray-400 mb-4">Companies with the most postings indexed</p>
+                <CompaniesChart data={companies} />
               </section>
             </div>
 
