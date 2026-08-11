@@ -59,7 +59,10 @@ class GoldExtractionLabel(BaseModel):
     # audit of agreements are reviewed; the rest are auto-accepted from the
     # annotator draft with human_verified=False). Published eval numbers
     # should report the human_verified fraction, per CLAUDE.md.
-    verification_method: str  # "manual_review" | "auto_accept_agreement" | "fixture"
+    verification_method: str  # "manual_review" | "auto_accept_agreement" |
+    # "auto_accept_unreviewed_disagreement" | "fixture" — the third one means
+    # review_cli.py's --sample-size cap excluded this disagreement from manual
+    # review; treat it as the least trustworthy category when reading results.
     disagreement_with_baseline: bool = False
     notes: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

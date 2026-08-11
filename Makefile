@@ -22,11 +22,14 @@ eval-draft:
 		--out eval/gold/extraction_skills.draft.jsonl
 
 # Interactive keyboard-driven review — resumable, see script docstring for
-# the accept/edit/skip/quit keys.
+# the accept/edit/skip/quit keys. Pass SAMPLE_SIZE=N to cap the manual queue
+# (e.g. `make eval-review SAMPLE_SIZE=40`) — worth reading the script's
+# docstring on why this matters in practice before running without it.
 eval-review:
 	cd backend && uv run python -m eval.scripts.review_cli \
 		--in eval/gold/extraction_skills.draft.jsonl \
-		--out eval/gold/extraction_skills.jsonl
+		--out eval/gold/extraction_skills.jsonl \
+		$(if $(SAMPLE_SIZE),--sample-size $(SAMPLE_SIZE),)
 
 # Score baseline_extractor against the real, human-reviewed gold set.
 eval-extraction:
