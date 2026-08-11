@@ -9,7 +9,7 @@ Scrapes Vancouver tech job postings from LinkedIn's public guest endpoints, extr
 | Layer     | Tech                                                          |
 |-----------|---------------------------------------------------------------|
 | Backend   | Python 3.12, FastAPI, SQLAlchemy (async), asyncpg             |
-| Database  | PostgreSQL 16                                                 |
+| Database  | PostgreSQL 18 (Railway)                                       |
 | Scraping  | LinkedIn public guest API, httpx, BeautifulSoup, APScheduler |
 | NLP       | spaCy `en_core_web_sm` + PhraseMatcher (100+ skills vocab)   |
 | Frontend  | React 18, TypeScript, Tailwind CSS, Recharts                 |
