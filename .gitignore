@@ -25,3 +25,9 @@ frontend/.vite/
 
 # Test venv (not the canonical .venv)
 backend/.testvenv/
+
+# eval — intermediate working files (regenerate via `make eval-export` /
+# `make eval-draft`). The reviewed gold set (extraction_skills.jsonl) is
+# tracked normally, once it exists.
+backend/eval/gold/listings_pool.jsonl
+backend/eval/gold/extraction_skills.draft.jsonl

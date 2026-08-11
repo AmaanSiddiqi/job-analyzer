@@ -25,6 +25,13 @@ dev = [
     "ruff>=0.16.2",
     "mypy>=2.3.0",
 ]
+# Only needed to run eval/scripts/draft_label.py (calls the Anthropic API as
+# the eval harness's annotator model). Not a runtime app dependency — kept
+# out of the main dependency list and out of `dev` so CI/prod installs don't
+# need an API key.
+eval = [
+    "anthropic>=0.40.0",
+]
 
 [build-system]
 requires = ["setuptools>=61.0"]
@@ -34,7 +41,7 @@ build-backend = "setuptools.build_meta"
 # (services/scraper.py imports `from scraper import linkedin`) — setuptools'
 # flat-layout auto-discovery refuses to guess between them, so list explicitly.
 [tool.setuptools.packages.find]
-include = ["app*", "scraper*"]
+include = ["app*", "scraper*", "eval*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
