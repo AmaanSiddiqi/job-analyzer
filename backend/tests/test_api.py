@@ -65,3 +65,17 @@ async def test_trends_top_n_validation(client):
 
     r = await client.get("/trends/skills", params={"top_n": 101})
     assert r.status_code == 422
+
+
+async def test_scrape_disabled_by_default(client, monkeypatch):
+    """scraper/linkedin.py is deprecated (CLAUDE.md) — off unless explicitly enabled."""
+    monkeypatch.delenv("ENABLE_LINKEDIN_SCRAPER", raising=False)
+    r = await client.post("/scrape", json={"keywords": "software engineer", "max_pages": 1})
+    assert r.status_code == 503
+    assert "ENABLE_LINKEDIN_SCRAPER" in r.json()["detail"]
+
+
+async def test_scrape_bulk_disabled_by_default(client, monkeypatch):
+    monkeypatch.delenv("ENABLE_LINKEDIN_SCRAPER", raising=False)
+    r = await client.post("/scrape/bulk", json={})
+    assert r.status_code == 503

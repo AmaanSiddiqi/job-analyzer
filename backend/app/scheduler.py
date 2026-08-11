@@ -5,7 +5,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from .database import AsyncSessionLocal
-from .services.scraper import run_scrape
+from .services.scraper import linkedin_scraper_enabled, run_scrape
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +41,14 @@ async def _scrape_all() -> None:
 
 
 def start(interval_hours: int = 6) -> None:
+    if not linkedin_scraper_enabled():
+        log.info(
+            "LinkedIn scraper is disabled (ENABLE_LINKEDIN_SCRAPER unset) — "
+            "scheduler not started. This is the sole current data source and "
+            "it's deprecated per CLAUDE.md; set the flag to re-enable temporarily."
+        )
+        return
+
     _scheduler.add_job(
         _scrape_all,
         trigger=IntervalTrigger(hours=interval_hours),
@@ -53,4 +61,5 @@ def start(interval_hours: int = 6) -> None:
 
 
 def stop() -> None:
-    _scheduler.shutdown(wait=False)
+    if _scheduler.running:
+        _scheduler.shutdown(wait=False)
