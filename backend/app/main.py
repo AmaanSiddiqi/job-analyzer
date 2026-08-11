@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .database import engine, Base
 from .routes import jobs, trends, scrape
 from . import scheduler
 
@@ -17,9 +16,8 @@ load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
+    # Schema is managed by Alembic migrations now (backend/alembic/) — run
+    # `alembic upgrade head` as a deploy step, not here. See AUDIT.md §5.
     interval = int(os.getenv("SCRAPE_INTERVAL_HOURS", "6"))
     scheduler.start(interval)
 
