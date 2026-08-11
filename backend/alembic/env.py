@@ -14,8 +14,8 @@ load_dotenv()  # database.py reads DATABASE_URL from the environment at import t
 # DATABASE_URL from the same place the app does (env var, with the
 # postgres:// -> postgresql+asyncpg:// rewrite already applied there) rather
 # than duplicating connection logic in alembic.ini.
-from app.database import DATABASE_URL, Base
 from app import models  # noqa: F401 — registers JobPosting on Base.metadata
+from app.database import DATABASE_URL, Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

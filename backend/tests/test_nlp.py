@@ -1,5 +1,4 @@
 """Unit tests for the NLP skill extractor."""
-import pytest
 from app.services.nlp import extract_skills
 
 

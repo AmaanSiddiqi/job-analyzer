@@ -4,12 +4,13 @@ Shared fixtures for API tests.
 Uses FastAPI's dependency override to inject an async mock DB session so tests
 run without a live PostgreSQL connection.
 """
-import pytest
-from httpx import AsyncClient, ASGITransport
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
-from app.main import app
+import pytest
+from httpx import ASGITransport, AsyncClient
+
 from app.database import get_db
+from app.main import app
 
 
 class _MockResult:

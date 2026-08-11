@@ -11,6 +11,7 @@ Pagination: increment `start` by 25 until an empty response is returned.
 """
 
 import asyncio
+
 import httpx
 from bs4 import BeautifulSoup, Tag
 
@@ -52,8 +53,11 @@ def _parse_cards(html: str) -> list[dict]:
         if not (title_el and company_el and location_el and link_el):
             continue
 
-        # Strip tracking params from the URL
-        url: str = link_el["href"].split("?")[0]  # type: ignore[index]
+        # Strip tracking params from the URL. bs4's stubs type attribute access as
+        # str | AttributeValueList (multi-valued, like `class`) — href is always a
+        # single string in practice, so the explicit str() is a real narrowing, not
+        # a suppression.
+        url: str = str(link_el["href"]).split("?")[0]  # type: ignore[index]
 
         jobs.append(
             {

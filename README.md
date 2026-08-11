@@ -1,5 +1,7 @@
 # Vancouver Job Analyzer
 
+[![CI](https://github.com/AmaanSiddiqi/job-analyzer/actions/workflows/ci.yml/badge.svg)](https://github.com/AmaanSiddiqi/job-analyzer/actions/workflows/ci.yml)
+
 Scrapes Vancouver tech job postings from LinkedIn's public guest endpoints, extracts skills with a spaCy NLP pipeline, and visualizes hiring trends in a React dashboard. The backend auto-scrapes 8 keyword sets every 6 hours.
 
 **Live:** backend on Railway · frontend on Vercel

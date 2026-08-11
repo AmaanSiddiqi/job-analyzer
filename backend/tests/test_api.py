@@ -1,9 +1,5 @@
 """Smoke tests for FastAPI endpoints."""
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.main import app
-from app.database import get_db
 
 
 async def test_health(client):

@@ -5,9 +5,9 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import get_db, AsyncSessionLocal
-from ..services.scraper import LinkedInScrapingDisabled, linkedin_scraper_enabled, run_scrape
+from ..database import AsyncSessionLocal, get_db
 from ..scheduler import KEYWORDS
+from ..services.scraper import LinkedInScrapingDisabled, linkedin_scraper_enabled, run_scrape
 
 log = logging.getLogger(__name__)
 
