@@ -103,11 +103,14 @@ All items below were decided and completed on branch `p0/audit-fixes` (4→6 com
   - Also discovered prod Postgres is **18.4**, not 16 as README/CLAUDE.md claimed — docs corrected, local `docker-compose.yml` bumped to match.
 - ✅ Local `.env` restored (Amaan changed desktops). Confirmed: this app currently has **zero** third-party API keys anywhere (no LLM/Clerk/paid services yet — those are later phases), so nothing sensitive needed handing over.
 - ✅ Decision: live LinkedIn auto-scraping **stops** on deploy of this branch (flag defaults off) — matches CLAUDE.md, not reversed.
+- ✅ `p0/audit-fixes` (PR #1) merged to `main` and deployed.
+- ✅ CI added (`.github/workflows/ci.yml`, PR #2): ruff, mypy, pytest, frontend lint+build, all green on first run. Getting ruff/mypy clean surfaced a couple of real bugs — a missing `zip(..., strict=True)` that could have silently misaligned scraped listings with descriptions, and a SQL column literally named `count` shadowing `tuple.count()` on SQLAlchemy `Row` attribute access.
+- ✅ `eval/` scaffolding (PR #3, branched from PR #2 so it's fully lint/type-checked and wired into the same CI run): export → draft-label (Claude as annotator) → keyboard-driven review (mandatory on disagreements, 25% random audit of agreements, rest auto-accepted) → score, per CLAUDE.md's machine-assisted labeling protocol. `make eval-smoke` (10 hand-authored fixtures, no DB/API key/network) runs in CI. The **real** 150-listing gold set has not been built yet — needs `ANTHROPIC_API_KEY` for drafting and ~2 hours of Amaan's review time; harness is ready whenever that happens. See `backend/eval/README.md`.
 
 ## Still open
 
 - Minimal auth gate for the three mutating routes (§1) until Clerk lands in P3 — shared-secret header good enough for now, or pull Clerk forward? Not yet built.
 - Rate limiting on mutating routes — not yet built.
-- DB indexes (§4) — first real migration to write once this branch merges.
-- `eval/` scaffolding + machine-assisted labeling tooling, and CI (ruff/mypy/pytest/smoke-eval) — the remaining P0 DoD items, not started yet.
-- When to merge `p0/audit-fixes` to `main` and deploy — nothing has been pushed or merged yet; this branch only exists locally.
+- DB indexes (§4) — first real migration to write once Alembic-based changes resume.
+- The real extraction gold set + `reports/extraction_eval.md` — harness exists, data doesn't yet (needs `ANTHROPIC_API_KEY` + Amaan's review time).
+- `p0/ci` (PR #2) and `p0/eval-scaffolding` (PR #3) are open, not yet merged.
