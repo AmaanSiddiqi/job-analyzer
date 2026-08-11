@@ -8,8 +8,8 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import jobs, trends, scrape
 from . import scheduler
+from .routes import jobs, scrape, trends
 
 load_dotenv()
 

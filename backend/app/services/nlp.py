@@ -58,7 +58,7 @@ _SKILLS_VOCAB: list[str] = [
 # ---------------------------------------------------------------------------
 _nlp = spacy.load("en_core_web_sm", disable=["ner", "parser"])
 _matcher = PhraseMatcher(_nlp.vocab, attr="LOWER")
-_patterns = list(_nlp.tokenizer.pipe(_SKILLS_VOCAB))
+_patterns = list(_nlp.tokenizer.pipe(_SKILLS_VOCAB))  # type: ignore[union-attr]  # spaCy's stubs under-type Language.tokenizer
 _matcher.add("SKILLS", _patterns)
 
 # Map lowercase → canonical form stored in DB

@@ -22,6 +22,8 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "httpx>=0.27.2",
+    "ruff>=0.16.2",
+    "mypy>=2.3.0",
 ]
 
 [build-system]
@@ -37,3 +39,25 @@ include = ["app*", "scraper*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = [
+    "E402",  # main.py configures logging before other imports on purpose;
+             # alembic/env.py must load_dotenv() before importing app.database
+             # (which reads DATABASE_URL at import time) — both deliberate.
+    "B008",  # Depends()/Query() as argument defaults is FastAPI's own
+             # required DI pattern, not the mutable-default footgun B008
+             # is meant to catch.
+]
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+ignore_missing_imports = true
+exclude = ["alembic/versions/", ".venv/"]

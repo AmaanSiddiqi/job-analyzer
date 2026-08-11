@@ -1,17 +1,22 @@
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models import JobPosting
 from ..schemas import (
-    SkillTrendsResponse, SkillTrend,
-    RoleTrendsResponse, RoleTrend,
-    CompanyTrendsResponse, CompanyTrend,
+    CompanyTrend,
+    CompanyTrendsResponse,
+    RoleTrend,
+    RoleTrendsResponse,
+    SkillHistoryResponse,
+    SkillHistorySeries,
+    SkillTrend,
+    SkillTrendsResponse,
+    SkillWeekPoint,
     StatsResponse,
-    SkillHistoryResponse, SkillHistorySeries, SkillWeekPoint,
 )
 
 router = APIRouter(prefix="/trends", tags=["trends"])
@@ -28,17 +33,19 @@ async def trends_skills(
     db: AsyncSession = Depends(get_db),
 ):
     """Top skills by frequency across all indexed postings."""
+    # Label as "n", not "count" — SQLAlchemy's Row is tuple-like, and a
+    # column named "count" shadows tuple.count() for attribute access.
     stmt = (
         select(
             func.unnest(JobPosting.skills).label("skill"),
-            func.count().label("count"),
+            func.count().label("n"),
         )
         .group_by(text("skill"))
-        .order_by(text("count DESC"))
+        .order_by(text("n DESC"))
         .limit(top_n)
     )
     result = await db.execute(stmt)
-    top_skills = [SkillTrend(skill=row.skill, count=row.count) for row in result.all()]
+    top_skills = [SkillTrend(skill=row.skill, count=row.n) for row in result.all()]
     return SkillTrendsResponse(total_jobs=await _total_jobs(db), top_skills=top_skills)
 
 
@@ -49,13 +56,13 @@ async def trends_roles(
 ):
     """Most common job titles across all indexed postings."""
     stmt = (
-        select(JobPosting.title, func.count().label("count"))
+        select(JobPosting.title, func.count().label("n"))
         .group_by(JobPosting.title)
-        .order_by(text("count DESC"))
+        .order_by(text("n DESC"))
         .limit(top_n)
     )
     result = await db.execute(stmt)
-    top_roles = [RoleTrend(title=row.title, count=row.count) for row in result.all()]
+    top_roles = [RoleTrend(title=row.title, count=row.n) for row in result.all()]
     return RoleTrendsResponse(total_jobs=await _total_jobs(db), top_roles=top_roles)
 
 
@@ -66,13 +73,13 @@ async def trends_companies(
 ):
     """Most active hiring companies across all indexed postings."""
     stmt = (
-        select(JobPosting.company, func.count().label("count"))
+        select(JobPosting.company, func.count().label("n"))
         .group_by(JobPosting.company)
-        .order_by(text("count DESC"))
+        .order_by(text("n DESC"))
         .limit(top_n)
     )
     result = await db.execute(stmt)
-    top_companies = [CompanyTrend(company=row.company, count=row.count) for row in result.all()]
+    top_companies = [CompanyTrend(company=row.company, count=row.n) for row in result.all()]
     return CompanyTrendsResponse(total_jobs=await _total_jobs(db), top_companies=top_companies)
 
 
@@ -101,10 +108,10 @@ async def trends_skill_history(
         top = await db.execute(
             select(
                 func.unnest(JobPosting.skills).label("skill"),
-                func.count().label("count"),
+                func.count().label("n"),
             )
             .group_by(text("skill"))
-            .order_by(text("count DESC"))
+            .order_by(text("n DESC"))
             .limit(5)
         )
         skills = [row.skill for row in top.all()]
@@ -116,7 +123,7 @@ async def trends_skill_history(
         SELECT
             date_trunc('week', date_scraped)::date AS week,
             skill,
-            count(*) AS count
+            count(*) AS n
         FROM job_postings, unnest(skills) AS skill
         WHERE date_scraped >= now() - make_interval(weeks => :weeks)
           AND skill = ANY(:skills)
@@ -127,7 +134,7 @@ async def trends_skill_history(
 
     by_skill: dict[str, list[SkillWeekPoint]] = defaultdict(list)
     for row in rows:
-        by_skill[row.skill].append(SkillWeekPoint(week=row.week, count=row.count))
+        by_skill[row.skill].append(SkillWeekPoint(week=row.week, count=row.n))
 
     series = [
         SkillHistorySeries(skill=skill, data=by_skill.get(skill, []))

@@ -13,9 +13,10 @@ from bs4 import BeautifulSoup
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from scraper import linkedin
+
 from ..models import JobPosting
 from ..services import nlp
-from scraper import linkedin
 
 log = logging.getLogger(__name__)
 
@@ -47,8 +48,8 @@ def _parse_description(html: str) -> str:
     soup = BeautifulSoup(html, "lxml")
     candidates = [
         soup.find("div", {"class": "show-more-less-html__markup"}),
-        soup.find("div", {"class": lambda c: c and "description__text" in c}),
-        soup.find("section", {"class": lambda c: c and "description" in c}),
+        soup.find("div", {"class": lambda c: bool(c and "description__text" in c)}),
+        soup.find("section", {"class": lambda c: bool(c and "description" in c)}),
         soup.find("div", {"class": "description"}),
         soup.find("div", {"class": "job-description"}),
     ]
@@ -105,7 +106,7 @@ async def run_scrape(keywords: str, max_pages: int, db: AsyncSession, location: 
         )
 
     inserted = skipped = 0
-    for listing, raw_desc in zip(listings, descriptions):
+    for listing, raw_desc in zip(listings, descriptions, strict=True):
         skills = nlp.extract_skills(raw_desc)
         row = {**listing, "raw_description": raw_desc, "skills": skills}
         stmt = (
@@ -114,7 +115,7 @@ async def run_scrape(keywords: str, max_pages: int, db: AsyncSession, location: 
             .on_conflict_do_nothing(index_elements=["source_url"])
         )
         result = await db.execute(stmt)
-        if result.rowcount:
+        if result.rowcount:  # type: ignore[attr-defined]  # Result[Any] doesn't narrow to CursorResult for Core DML via AsyncSession.execute()
             inserted += 1
         else:
             skipped += 1
