@@ -40,8 +40,11 @@ jobs:
       - name: pytest
         run: uv run pytest tests/ -v
 
-      # Smoke eval (10-item, extraction vs baseline_extractor) runs here once
-      # eval/ scaffolding lands — tracked in AUDIT.md, part of the same P0 phase.
+      - name: Smoke eval (baseline_extractor vs 10 fixture listings)
+        run: |
+          uv run python -m eval.scripts.score_extraction \
+            --gold eval/fixtures/smoke_listings.jsonl \
+            --report ../reports/extraction_eval_smoke.md
 
   frontend:
     name: frontend (lint, build)
