@@ -92,9 +92,22 @@ Per CLAUDE.md: *"Fix small, safe issues in dedicated PRs immediately; assign big
 
 Everything else above (auth on mutating routes, rate limiting, Alembic baseline + DB snapshot, indexes, CORS multi-origin, README rewrite) is bigger and gets tracked against the phase it belongs to (mostly P0 continuation and P1).
 
-## Open decisions for Amaan
+## Status update (resolved during this P0 session)
 
-- Should `CLAUDE.md` be un-ignored and tracked in git?
-- OK to ship the three small fixes above now (items 1–2 are inert; item 3 changes live scraping behavior)?
-- For the Alembic baseline + prod DB snapshot (§5): I don't have Railway/DB credentials from this environment. Do you want to run the snapshot yourself and hand me a connection string for a copy, or do it together?
-- Minimal auth gate for the three mutating routes until Clerk lands in P3 — shared-secret header good enough for now, or do you want to pull Clerk forward?
+All items below were decided and completed on branch `p0/audit-fixes` (4→6 commits, not yet merged to `main`):
+
+- ✅ `CLAUDE.md` un-ignored and tracked.
+- ✅ Dead `requirements.txt` removed; `npm run lint` fixed (ESLint 9 flat config was entirely missing); `scraper/linkedin.py` gated behind `ENABLE_LINKEDIN_SCRAPER` (default off, per CLAUDE.md).
+- ✅ Alembic introduced, baseline migration (`0001_baseline_job_postings`) generated and rehearsed against a full **production** snapshot (not just a fresh local DB) — `pg_dump`/`pg_restore` via Railway's public proxy, restored locally, confirmed byte-identical schema, then `alembic stamp head` run against real prod (metadata-only: one row in a new `alembic_version` table, zero rows/schema touched in `job_postings` — verified row count unchanged at 5,862 before/after). `main.py`'s `create_all` removed; `railway.toml`/`docker-compose.yml` now run `alembic upgrade head` as a deploy step.
+  - Rehearsal caught a real deploy-breaker before it shipped: running `upgrade head` directly against the (already-populated, never-Alembic-managed) prod table fails with `DuplicateTableError`. The one-time `stamp head` was required first — done, and now `upgrade head` is safe for all future migrations.
+  - Also discovered prod Postgres is **18.4**, not 16 as README/CLAUDE.md claimed — docs corrected, local `docker-compose.yml` bumped to match.
+- ✅ Local `.env` restored (Amaan changed desktops). Confirmed: this app currently has **zero** third-party API keys anywhere (no LLM/Clerk/paid services yet — those are later phases), so nothing sensitive needed handing over.
+- ✅ Decision: live LinkedIn auto-scraping **stops** on deploy of this branch (flag defaults off) — matches CLAUDE.md, not reversed.
+
+## Still open
+
+- Minimal auth gate for the three mutating routes (§1) until Clerk lands in P3 — shared-secret header good enough for now, or pull Clerk forward? Not yet built.
+- Rate limiting on mutating routes — not yet built.
+- DB indexes (§4) — first real migration to write once this branch merges.
+- `eval/` scaffolding + machine-assisted labeling tooling, and CI (ruff/mypy/pytest/smoke-eval) — the remaining P0 DoD items, not started yet.
+- When to merge `p0/audit-fixes` to `main` and deploy — nothing has been pushed or merged yet; this branch only exists locally.
