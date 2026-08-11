@@ -79,7 +79,13 @@ export default function App() {
   }, [loadJobs, selectedCompany]);
 
   useEffect(() => {
+    // Mount-only fetch. loadData is intentionally omitted: it's recreated
+    // whenever selectedCompany changes, and including it here would refetch
+    // everything (skills/roles/companies/history) on every company-filter
+    // click instead of just the jobs list, which handleCompanyClick already
+    // handles directly.
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleCompanyClick = (company: string) => {
