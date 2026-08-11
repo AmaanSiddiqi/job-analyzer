@@ -1,12 +1,12 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db, AsyncSessionLocal
-from ..services.scraper import run_scrape
+from ..services.scraper import LinkedInScrapingDisabled, linkedin_scraper_enabled, run_scrape
 from ..scheduler import KEYWORDS
 
 log = logging.getLogger(__name__)
@@ -40,7 +40,10 @@ class BulkScrapeStarted(BaseModel):
 
 @router.post("", response_model=ScrapeResponse)
 async def scrape_jobs(payload: ScrapeRequest, db: AsyncSession = Depends(get_db)):
-    result = await run_scrape(payload.keywords, payload.max_pages, db, location=payload.location)
+    try:
+        result = await run_scrape(payload.keywords, payload.max_pages, db, location=payload.location)
+    except LinkedInScrapingDisabled as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
     return ScrapeResponse(**result)
 
 
@@ -63,6 +66,14 @@ async def scrape_bulk(
     payload: BulkScrapeRequest = BulkScrapeRequest(),
 ):
     """Kick off a full scrape of all preset keywords in the background."""
+    if not linkedin_scraper_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "LinkedIn scraping is disabled (deprecated data source — see CLAUDE.md's "
+                "'Data source transition'). Set ENABLE_LINKEDIN_SCRAPER=true to re-enable temporarily."
+            ),
+        )
     background_tasks.add_task(_run_bulk, payload.max_pages, payload.location)
     return BulkScrapeStarted(
         status="started",

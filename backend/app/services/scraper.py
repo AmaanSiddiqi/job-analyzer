@@ -5,6 +5,7 @@ Called by both the HTTP endpoint and the scheduler.
 
 import asyncio
 import logging
+import os
 import re
 
 import httpx
@@ -22,6 +23,19 @@ _DETAIL_URL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
 _HEADERS = linkedin._HEADERS
 _CONCURRENCY = 2
 _DESC_DELAY = 2.0
+
+
+class LinkedInScrapingDisabled(RuntimeError):
+    """Raised when a scrape is requested but ENABLE_LINKEDIN_SCRAPER is not set.
+
+    scraper/linkedin.py is deprecated per CLAUDE.md — it's the sole data
+    source today but is slated for replacement by Greenhouse/Lever/Ashby
+    board JSON + Adzuna/Jooble in P1. Gated off by default until then.
+    """
+
+
+def linkedin_scraper_enabled() -> bool:
+    return os.getenv("ENABLE_LINKEDIN_SCRAPER", "false").strip().lower() in ("1", "true", "yes")
 
 
 def _extract_job_id(url: str) -> str | None:
@@ -76,6 +90,12 @@ async def _fetch_description(source_url: str, client: httpx.AsyncClient, sem: as
 
 async def run_scrape(keywords: str, max_pages: int, db: AsyncSession, location: str = "Canada") -> dict:
     """Scrape `keywords`, enrich descriptions, extract skills, upsert to DB."""
+    if not linkedin_scraper_enabled():
+        raise LinkedInScrapingDisabled(
+            "LinkedIn scraping is disabled (deprecated data source — see CLAUDE.md's "
+            "'Data source transition'). Set ENABLE_LINKEDIN_SCRAPER=true to re-enable "
+            "temporarily; this will be replaced by board-JSON/Adzuna/Jooble sources in P1."
+        )
     listings = await linkedin.scrape(keywords, max_pages, location=location)
 
     sem = asyncio.Semaphore(_CONCURRENCY)

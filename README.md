@@ -9,7 +9,7 @@ Scrapes Vancouver tech job postings from LinkedIn's public guest endpoints, extr
 | Layer     | Tech                                                          |
 |-----------|---------------------------------------------------------------|
 | Backend   | Python 3.12, FastAPI, SQLAlchemy (async), asyncpg             |
-| Database  | PostgreSQL 16                                                 |
+| Database  | PostgreSQL 18 (Railway)                                       |
 | Scraping  | LinkedIn public guest API, httpx, BeautifulSoup, APScheduler |
 | NLP       | spaCy `en_core_web_sm` + PhraseMatcher (100+ skills vocab)   |
 | Frontend  | React 18, TypeScript, Tailwind CSS, Recharts                 |
@@ -42,6 +42,7 @@ cd backend
 uv sync
 uv run python -m spacy download en_core_web_sm
 cp .env.example .env
+uv run alembic upgrade head            # apply migrations (schema is Alembic-managed, not auto-created)
 uv run uvicorn app.main:app --reload   # → :8000
 
 # Frontend (separate terminal)
@@ -77,21 +78,23 @@ Covers: NLP unit tests (8) + API endpoint smoke tests (8).
 
 ```
 backend/
+  alembic/             # Schema migrations — source of truth for the DB schema
+    versions/
   app/
-    main.py           # FastAPI app, lifespan DB init + scheduler start
+    main.py           # FastAPI app, lifespan scheduler start (schema via Alembic, not create_all)
     database.py       # Async SQLAlchemy engine + get_db dependency
     models.py         # JobPosting ORM model (skills as TEXT[])
     schemas.py        # Pydantic v2 request/response models
-    scheduler.py      # APScheduler — runs scrape every 6 hours
+    scheduler.py      # APScheduler — runs scrape every N hours, gated by ENABLE_LINKEDIN_SCRAPER
     routes/
       jobs.py         # GET /jobs
       trends.py       # /trends/* aggregation endpoints
-      scrape.py       # POST /scrape
+      scrape.py       # POST /scrape, POST /scrape/bulk
     services/
-      nlp.py          # spaCy skill extractor
+      nlp.py          # spaCy skill extractor (baseline_extractor)
       scraper.py      # Core scrape pipeline: listings → descriptions → NLP → DB
   scraper/
-    linkedin.py       # LinkedIn guest endpoint scraper + 429 backoff
+    linkedin.py       # LinkedIn guest endpoint scraper — deprecated, see CLAUDE.md
   tests/
     test_nlp.py       # NLP unit tests
     test_api.py       # API smoke tests
