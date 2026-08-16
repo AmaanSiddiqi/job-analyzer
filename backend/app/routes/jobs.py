@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..auth import require_admin_key
 from ..database import get_db
 from ..models import JobPosting
+from ..rate_limit import limiter
 from ..schemas import JobPostingCreate, JobPostingOut
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -35,8 +37,9 @@ async def get_job(job_id: int, db: AsyncSession = Depends(get_db)):
     return job
 
 
-@router.post("", response_model=JobPostingOut, status_code=201)
-async def create_job(payload: JobPostingCreate, db: AsyncSession = Depends(get_db)):
+@router.post("", response_model=JobPostingOut, status_code=201, dependencies=[Depends(require_admin_key)])
+@limiter.limit("10/minute")
+async def create_job(request: Request, payload: JobPostingCreate, db: AsyncSession = Depends(get_db)):
     job = JobPosting(**payload.model_dump())
     db.add(job)
     await db.commit()

@@ -105,12 +105,15 @@ All items below were decided and completed on branch `p0/audit-fixes` (4→6 com
 - ✅ Decision: live LinkedIn auto-scraping **stops** on deploy of this branch (flag defaults off) — matches CLAUDE.md, not reversed.
 - ✅ `p0/audit-fixes` (PR #1) merged to `main` and deployed.
 - ✅ CI added (`.github/workflows/ci.yml`, PR #2): ruff, mypy, pytest, frontend lint+build, all green on first run. Getting ruff/mypy clean surfaced a couple of real bugs — a missing `zip(..., strict=True)` that could have silently misaligned scraped listings with descriptions, and a SQL column literally named `count` shadowing `tuple.count()` on SQLAlchemy `Row` attribute access.
-- ✅ `eval/` scaffolding (PR #3, branched from PR #2 so it's fully lint/type-checked and wired into the same CI run): export → draft-label (Claude as annotator) → keyboard-driven review (mandatory on disagreements, 25% random audit of agreements, rest auto-accepted) → score, per CLAUDE.md's machine-assisted labeling protocol. `make eval-smoke` (10 hand-authored fixtures, no DB/API key/network) runs in CI. The **real** 150-listing gold set has not been built yet — needs `ANTHROPIC_API_KEY` for drafting and ~2 hours of Amaan's review time; harness is ready whenever that happens. See `backend/eval/README.md`.
+- ✅ `eval/` scaffolding (PR #3, branched from PR #2 so it's fully lint/type-checked and wired into the same CI run): export → draft-label (Claude as annotator) → keyboard-driven review (mandatory on disagreements, 25% random audit of agreements, rest auto-accepted) → score, per CLAUDE.md's machine-assisted labeling protocol. `make eval-smoke` (10 hand-authored fixtures, no DB/API key/network) runs in CI. **Done**: real 150-listing gold set built (40 human-verified), `reports/extraction_eval.md` shows `baseline_extractor` at precision 0.874 / recall 0.312 / F1 0.460 — the number P1's real extractor needs to beat. See `backend/eval/README.md`.
+- ✅ P0 fully closed. `p0/ci` (PR #2) and `p0/eval-scaffolding` (PR #3) merged.
+
+**P0-adjacent follow-up (this session, after P0 closed):**
+- ✅ §1 — Auth: `app/auth.py`'s `require_admin_key` gates all three mutating routes (`X-Admin-Key` header, `ADMIN_API_KEY` env var, fails closed if unset). Frontend prompts for the key once per browser session (`api/adminKey.ts`) rather than embedding a secret in the JS bundle. Stopgap until Clerk (P3), exactly as this section originally proposed.
+- ✅ §1 — Rate limiting: `slowapi`, per-IP, on all three routes (`app/rate_limit.py`) — 5/min scrape, 2/min bulk-scrape, 10/min job-create. Verified live (curl) that the 3rd rapid call actually 429s.
+- ✅ §4 — DB indexes: migration `0002_add_indexes` — `date_scraped` (DESC, serves `GET /jobs`'s default unfiltered listing), `company` + an expression index on `lower(company)` (matches `jobs.py`'s exact filter), `title`, and a GIN index on `skills`. Rehearsed locally with `EXPLAIN`: the date/company indexes are confirmed used by the real queries; the GIN index does *not* speed up today's `trends.py` aggregates (those scan every row by design, unfiltered) — it's there for the `skills @> ARRAY[...]`-style containment queries P5's per-user matching will need, which don't exist yet. Being explicit about that rather than overclaiming it.
 
 ## Still open
 
-- Minimal auth gate for the three mutating routes (§1) until Clerk lands in P3 — shared-secret header good enough for now, or pull Clerk forward? Not yet built.
-- Rate limiting on mutating routes — not yet built.
-- DB indexes (§4) — first real migration to write once Alembic-based changes resume.
-- The real extraction gold set + `reports/extraction_eval.md` — harness exists, data doesn't yet (needs `ANTHROPIC_API_KEY` + Amaan's review time).
-- `p0/ci` (PR #2) and `p0/eval-scaffolding` (PR #3) are open, not yet merged.
+- Not yet applied to production: migration `0002_add_indexes`, and Railway needs a real `ADMIN_API_KEY` set (currently unset there → the three mutating routes correctly 503 until it's configured — fails closed, not open).
+- LinkedIn scraper still gated off by default (`ENABLE_LINKEDIN_SCRAPER` unset in Railway) — unchanged since P0, still the right call until P1's real sources land.

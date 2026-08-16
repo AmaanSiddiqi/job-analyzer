@@ -1,3 +1,4 @@
+import { adminHeaders, clearStoredAdminKey } from "./adminKey";
 import api from "./client";
 
 export interface JobPosting {
@@ -68,8 +69,24 @@ export const fetchCompanyTrends = (top_n = 15) =>
 export const fetchStats = () =>
   api.get<StatsResponse>("/trends/stats").then((r) => r.data);
 
+// Both scrape triggers are admin-gated server-side (X-Admin-Key, AUDIT.md §1).
+// A 401 means the stored key was wrong/stale — clear it so the next click
+// re-prompts instead of failing silently forever.
+async function postWithAdminKey<T>(url: string, body: object): Promise<T> {
+  const headers = adminHeaders();
+  try {
+    const r = await api.post<T>(url, body, { headers });
+    return r.data;
+  } catch (e) {
+    if (typeof e === "object" && e && "response" in e && (e as { response?: { status?: number } }).response?.status === 401) {
+      clearStoredAdminKey();
+    }
+    throw e;
+  }
+}
+
 export const triggerScrape = (keywords: string, max_pages = 2, location = "Canada") =>
-  api.post<ScrapeResponse>("/scrape", { keywords, max_pages, location }).then((r) => r.data);
+  postWithAdminKey<ScrapeResponse>("/scrape", { keywords, max_pages, location });
 
 export interface BulkScrapeStarted {
   status: string;
@@ -79,7 +96,7 @@ export interface BulkScrapeStarted {
 }
 
 export const triggerBulkScrape = (max_pages = 10, location = "Canada") =>
-  api.post<BulkScrapeStarted>("/scrape/bulk", { max_pages, location }).then((r) => r.data);
+  postWithAdminKey<BulkScrapeStarted>("/scrape/bulk", { max_pages, location });
 
 export interface SkillWeekPoint {
   week: string;

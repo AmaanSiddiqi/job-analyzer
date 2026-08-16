@@ -24,6 +24,17 @@ import {
 type ScrapeStatus = "idle" | "loading" | "done" | "error";
 type BulkStatus = "idle" | "loading" | "started";
 
+function describeScrapeError(e: unknown): string {
+  const status = (e as { response?: { status?: number } })?.response?.status;
+  if (status === 401) return "Wrong admin key — click Scrape again to re-enter it.";
+  if (status === 429) return "Rate limited — wait a minute and try again.";
+  if (status === 503) {
+    const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+    return detail ?? "Scraping is currently disabled.";
+  }
+  return "Scrape failed — check backend logs.";
+}
+
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-5 py-4">
@@ -110,8 +121,8 @@ export default function App() {
       setScrapeResult(`+${result.inserted} new · ${result.skipped} dupes · ${result.fetched} fetched`);
       setScrapeStatus("done");
       loadData();
-    } catch {
-      setScrapeResult("Scrape failed — check backend logs.");
+    } catch (e) {
+      setScrapeResult(describeScrapeError(e));
       setScrapeStatus("error");
     }
   };
@@ -121,7 +132,8 @@ export default function App() {
     try {
       await triggerBulkScrape(10);
       setBulkStatus("started");
-    } catch {
+    } catch (e) {
+      setScrapeResult(describeScrapeError(e));
       setBulkStatus("idle");
     }
   };

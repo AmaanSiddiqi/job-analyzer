@@ -48,6 +48,8 @@ def mock_db():
 @pytest.fixture
 async def client(mock_db):
     app.dependency_overrides[get_db] = lambda: mock_db
+    app.state.limiter.reset()  # slowapi's Limiter is a module-level singleton —
+    # without this, rate-limit state leaks across tests and causes flaky 429s.
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
     app.dependency_overrides.clear()

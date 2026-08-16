@@ -15,6 +15,7 @@ dependencies = [
     "spacy>=3.8.2",
     "apscheduler>=3.10.4",
     "alembic>=1.13.2",
+    "slowapi>=0.1.10",
 ]
 
 [project.optional-dependencies]
