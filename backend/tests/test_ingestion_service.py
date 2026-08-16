@@ -53,10 +53,40 @@ class TestLooksCanadian:
             "London, England, United Kingdom",
             "Berlin, Germany",
             "EMEA - Remote",
+            # foreign city + remote tag must not slip through the remote path
+            "Amsterdam | Remote",
+            "Tokyo | Remote",
+            "Washington, DC | Remote",
+            "Korea | Remote",
+            # Victoria the Australian state, not Victoria BC
+            "Melbourne, Victoria",
+            "Santiago | Latin America",
+            "Cambridge, MA | Massachusetts",
+            "Remote in the US | Remote",
+            "USA, Remote",
         ],
     )
     def test_drops(self, location):
         assert not looks_canadian(location)
+
+    def test_us_word_boundary_does_not_hit_australia(self):
+        # "AUStralia" contains "us" — must be caught by the country name,
+        # not by a substring US match misfiring on arbitrary text
+        assert not looks_canadian("Sydney, Australia")
+        assert looks_canadian("Angus, ON")  # "us" inside a word never matches
+
+    @pytest.mark.parametrize(
+        "location",
+        [
+            # any Canadian segment rescues a multi-location listing
+            "Toronto | San Francisco | New York | Remote",
+            "United States | Canada | Remote",
+            "London, ON",  # province code beats the foreign city list
+            "Montreal | Remote",
+        ],
+    )
+    def test_multi_location_keeps(self, location):
+        assert looks_canadian(location)
 
 
 class TestContentHash:

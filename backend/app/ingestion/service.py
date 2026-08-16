@@ -43,28 +43,68 @@ _CITIES = (
 _PROVINCE_CODE = re.compile(
     r"(?:^|[\s,(])(on|qc|bc|ab|mb|sk|ns|nb|nl|pe|yt|nt|nu)(?:$|[\s,).|])", re.IGNORECASE
 )
-_FOREIGN_REMOTE = (
-    "remote us", "remote - us", "remote (us", "remote, us", "us remote",
-    "remote usa", "remote - usa", "united states", "emea", "europe", "uk",
-    "united kingdom", "latam", "apac", "germany", "france", "spain", "india",
-    "australia", "mexico", "brazil",
+# Foreign countries/regions/cities observed on the configured boards. Bounded
+# by what those companies actually post — grow it as leaks are noticed.
+_FOREIGN = (
+    "united states", "usa", "remote us", "remote - us", "remote (us", "us remote",
+    "emea", "europe", "united kingdom", "england", "scotland", "ireland",
+    "latam", "apac", "germany", "france", "spain", "italy", "portugal",
+    "netherlands", "belgium", "poland", "romania", "bulgaria", "hungary",
+    "serbia", "sweden", "switzerland", "luxembourg", "india", "australia",
+    "new zealand", "mexico", "brazil", "argentina", "colombia", "chile",
+    "japan", "korea", "singapore", "china", "israel", "uae", "dubai", "qatar",
+    "new york", "san francisco", "boston", "austin", "seattle", "chicago",
+    "denver", "los angeles", "washington", "phoenix", "dallas", "atlanta",
+    "miami", "nashville", "portland", "salt lake", "san diego", "houston",
+    "london", "paris", "berlin", "munich", "cologne", "frankfurt", "amsterdam",
+    "barcelona", "madrid", "malaga", "milan", "dublin", "belfast", "ghent",
+    "zurich", "stockholm", "gothenburg", "bucharest", "athens", "melbourne",
+    "sydney", "tokyo", "seoul", "delhi", "mumbai", "bangalore", "mexico city",
+    "latin america", "santiago", "massachusetts", "california", "texas",
+    "virginia", "florida", "colorado", "illinois", "michigan", "pennsylvania",
+    "new jersey", "minnesota", "tennessee", "utah", "oregon", "arizona",
+    "nevada", "missouri", "indiana", "wisconsin", "kentucky", "oklahoma",
 )
+# "US"/"USA"/"U.S." need word bounds — a substring match would hit "AUStralia".
+_US_RE = re.compile(r"\bu\.?s\.?a?\.?\b", re.IGNORECASE)
+
+
+def _segment_kind(segment: str) -> str:
+    """Classify one location segment: 'ca' | 'foreign' | 'other'.
+
+    Strong Canadian signals (the word Canada, full province names, word-bounded
+    province codes) are checked before the foreign list so "London, ON" wins
+    over "london"; the bare-city list is checked after it so "Melbourne,
+    Victoria" reads as foreign, not as Victoria BC.
+    """
+    seg = segment.lower()
+    if "canada" in seg or "(can)" in seg or any(p in seg for p in _PROVINCES):
+        return "ca"
+    if _PROVINCE_CODE.search(segment):
+        return "ca"
+    if any(f in seg for f in _FOREIGN) or _US_RE.search(seg):
+        return "foreign"
+    if any(c in seg for c in _CITIES):
+        return "ca"
+    return "other"
 
 
 def looks_canadian(location: str | None) -> bool:
-    """Conservative filter: keep Canadian locations, unknowns, and remote
-    listings that don't name a foreign scope. Wrong-keeps are cheap (staleness
-    ages them out); wrong-drops silently lose relevant jobs — so lean keep."""
+    """Keep listings with any Canadian location segment; drop ones whose only
+    named places are foreign (a trailing "Remote" tag doesn't rescue
+    "Amsterdam | Remote"); keep unknowns and genuinely bare remote. Wrong-keeps
+    are cheap (staleness ages them out); wrong-drops silently lose relevant
+    jobs — so unknowns lean keep."""
     if not location:
         return True
-    loc = location.lower()
-    if "canada" in loc or "(can)" in loc:
+    kinds = {
+        _segment_kind(seg)
+        for seg in re.split(r"[|;]", location)
+        if seg.strip() and seg.strip().lower() not in ("remote", "hybrid", "on-site", "onsite")
+    }
+    if "ca" in kinds:
         return True
-    if any(p in loc for p in _PROVINCES) or any(c in loc for c in _CITIES):
-        return True
-    if _PROVINCE_CODE.search(location):
-        return True
-    return "remote" in loc and not any(f in loc for f in _FOREIGN_REMOTE)
+    return "foreign" not in kinds
 
 
 def content_hash(title: str, company: str, location: str | None, description: str) -> str:
