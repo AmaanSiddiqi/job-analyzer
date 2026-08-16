@@ -6,6 +6,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from .database import AsyncSessionLocal
 from .services.scraper import linkedin_scraper_enabled, run_scrape
+from .settings import get_settings
 
 log = logging.getLogger(__name__)
 
@@ -40,24 +41,57 @@ async def _scrape_all() -> None:
     log.info("Scheduled scrape complete")
 
 
+async def _ingest_boards() -> None:
+    # Local import so the scheduler module doesn't pull ingestion (and spaCy
+    # via its nlp import) at startup unless a job actually runs.
+    from .ingestion.service import run_board_ingestion
+
+    log.info("Scheduled board ingestion starting")
+    try:
+        async with AsyncSessionLocal() as db:
+            await run_board_ingestion(db)
+    except Exception:
+        log.exception("Scheduled board ingestion failed")
+    log.info("Scheduled board ingestion complete")
+
+
 def start(interval_hours: int = 6) -> None:
-    if not linkedin_scraper_enabled():
+    settings = get_settings()
+    jobs = 0
+
+    if linkedin_scraper_enabled():
+        _scheduler.add_job(
+            _scrape_all,
+            trigger=IntervalTrigger(hours=interval_hours),
+            id="scrape_all",
+            replace_existing=True,
+            misfire_grace_time=300,
+        )
+        jobs += 1
+    else:
         log.info(
             "LinkedIn scraper is disabled (ENABLE_LINKEDIN_SCRAPER unset) — "
-            "scheduler not started. This is the sole current data source and "
-            "it's deprecated per CLAUDE.md; set the flag to re-enable temporarily."
+            "deprecated per CLAUDE.md; board-JSON/Adzuna/Jooble sources replace it."
         )
+
+    if settings.enable_board_ingestion:
+        _scheduler.add_job(
+            _ingest_boards,
+            trigger=IntervalTrigger(hours=settings.board_ingest_interval_hours),
+            id="ingest_boards",
+            replace_existing=True,
+            misfire_grace_time=300,
+        )
+        jobs += 1
+    else:
+        log.info("Board ingestion is disabled (ENABLE_BOARD_INGESTION unset) — not scheduled.")
+
+    if not jobs:
+        log.info("No ingestion sources enabled — scheduler not started.")
         return
 
-    _scheduler.add_job(
-        _scrape_all,
-        trigger=IntervalTrigger(hours=interval_hours),
-        id="scrape_all",
-        replace_existing=True,
-        misfire_grace_time=300,
-    )
     _scheduler.start()
-    log.info("Scheduler started — every %d hours", interval_hours)
+    log.info("Scheduler started — %d job(s)", jobs)
 
 
 def stop() -> None:

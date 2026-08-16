@@ -1,0 +1,31 @@
+{
+ "apiVersion": "1",
+ "jobs": [
+  {
+   "id": "557cba88-2606-43eb-9638-d01fa235a7ad",
+   "title": "Future Opportunities",
+   "location": "Ottawa, Ontario",
+   "secondaryLocations": [],
+   "isListed": true,
+   "isRemote": null,
+   "publishedAt": "2026-07-03T05:01:26.656+00:00",
+   "jobUrl": "https://jobs.ashbyhq.com/noibu/557cba88-2606-43eb-9638-d01fa235a7ad",
+   "descriptionPlain": "Noibu is the leading ecommerce analytics & monitoring platform, purpose-built to help retailers protect and grow online revenue. By unifying site monitoring, experience analytics, and conversion growth opportunities in a single pane of glass, Noibu captures the most important end-to-end shopping data, without the complexity of traditional analytics tools.\n\nNoibu surfaces critical site errors, perf",
+   "descriptionHtml": "<p style=\"min-height:1.5em\">Noibu is the leading ecommerce analytics &amp; monitoring platform, purpose-built to help retailers protect and grow online revenue. By unifying site monitoring, experience analytics, and conversion growth opportunities in a single pane of glass, Noibu captures the most i",
+   "employmentType": "FullTime"
+  },
+  {
+   "id": "0638bb97-1f9b-4ae2-9d76-91a6713cc25c",
+   "title": "Manager, Mid-Market Customer Success",
+   "location": "Ottawa, Ontario",
+   "secondaryLocations": [],
+   "isListed": false,
+   "isRemote": null,
+   "publishedAt": "2026-07-03T05:01:26.656+00:00",
+   "jobUrl": "https://jobs.ashbyhq.com/noibu/0638bb97-1f9b-4ae2-9d76-91a6713cc25c",
+   "descriptionPlain": "Noibu is the leading ecommerce analytics & monitoring platform, purpose-built to help retailers protect and grow online revenue. By unifying site monitoring, experience analytics, and conversion growth opportunities in a single pane of glass, Noibu captures the most important end-to-end shopping data, without the complexity of traditional analytics tools.\n\nNoibu surfaces critical site errors, perf",
+   "descriptionHtml": "<p style=\"min-height:1.5em\">Noibu is the leading ecommerce analytics &amp; monitoring platform, purpose-built to help retailers protect and grow online revenue. By unifying site monitoring, experience analytics, and conversion growth opportunities in a single pane of glass, Noibu captures the most i",
+   "employmentType": "FullTime"
+  }
+ ]
+}
