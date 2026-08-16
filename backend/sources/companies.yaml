@@ -1,0 +1,345 @@
+# Curated company job boards for board-JSON ingestion (P1).
+#
+# Every entry was verified against the live public API on the date noted:
+# the token resolves on the stated board AND the org name / job locations
+# confirm it is the intended (Canadian) company — several plausible slugs
+# turned out to be unrelated US companies and were excluded.
+#
+# Boards and their public endpoints:
+#   greenhouse: https://boards-api.greenhouse.io/v1/boards/{token}/jobs
+#   lever:      https://api.lever.co/v0/postings/{token}?mode=json
+#   ashby:      https://api.ashbyhq.com/posting-api/job-board/{token}
+#
+# Maintenance: run `uv run python -m sources.verify` (from backend/) to
+# re-verify every token; it reports dead boards and job counts. Companies
+# on Workday/SmartRecruiters/own portals (Shopify, Coveo, Arctic Wolf, ...)
+# can't be listed here — they arrive via the Adzuna/Jooble aggregators.
+#
+# Review status: pending — Amaan reviews in the PR that introduces this file.
+version: 1
+companies:
+  - name: "1Password"
+    hq: "Toronto, ON"
+    board: ashby
+    token: 1password
+    # verified 2026-08-16: 61 open jobs
+  - name: "7shifts"
+    hq: "Saskatoon, SK"
+    board: greenhouse
+    token: 7shifts
+    # verified 2026-08-16: 12 open jobs
+  - name: "AbCellera"
+    hq: "Vancouver, BC"
+    board: greenhouse
+    token: abcellera
+    # verified 2026-08-16: 19 open jobs
+  - name: "Achievers"
+    hq: "Toronto, ON"
+    board: lever
+    token: achievers
+    # verified 2026-08-16: 22 open jobs
+  - name: "AlayaCare"
+    hq: "Montreal, QC"
+    board: greenhouse
+    token: alayacare
+    # verified 2026-08-16: 19 open jobs
+  - name: "AltaML"
+    hq: "Edmonton, AB"
+    board: lever
+    token: altaml
+    # verified 2026-08-16: 7 open jobs
+  - name: "Apply Digital"
+    hq: "Vancouver, BC"
+    board: lever
+    token: applydigital
+    # verified 2026-08-16: 27 open jobs
+  - name: "Arteria AI"
+    hq: "Toronto, ON"
+    board: greenhouse
+    token: arteriaai
+    # verified 2026-08-16: 0 open jobs
+  - name: "BenchSci"
+    hq: "Toronto, ON"
+    board: lever
+    token: benchsci
+    # verified 2026-08-16: 1 open jobs
+  - name: "Benevity"
+    hq: "Calgary, AB"
+    board: ashby
+    token: benevity
+    # verified 2026-08-16: 13 open jobs
+  - name: "Clutch"
+    hq: "Toronto, ON"
+    board: greenhouse
+    token: clutch
+    # verified 2026-08-16: 74 open jobs
+  - name: "Coconut Software"
+    hq: "Saskatoon, SK"
+    board: greenhouse
+    token: coconutsoftware
+    # verified 2026-08-16: 1 open jobs
+  - name: "Cohere"
+    hq: "Toronto, ON"
+    board: ashby
+    token: cohere
+    # verified 2026-08-16: 144 open jobs
+  - name: "CoLab Software"
+    hq: "St. John's, NL"
+    board: greenhouse
+    token: colabsoftware
+    # verified 2026-08-16: 27 open jobs
+  - name: "D2L"
+    hq: "Kitchener, ON"
+    board: greenhouse
+    token: d2l
+    # verified 2026-08-16: 27 open jobs
+  - name: "Deep Genomics"
+    hq: "Toronto, ON"
+    board: lever
+    token: deepgenomics
+    # verified 2026-08-16: 2 open jobs
+  - name: "Docebo"
+    hq: "Toronto, ON (NA HQ)"
+    board: ashby
+    token: docebo
+    # verified 2026-08-16: 52 open jobs
+  - name: "Faire"
+    hq: "Kitchener, ON"
+    board: greenhouse
+    token: faire
+    # verified 2026-08-16: 67 open jobs
+  - name: "Felix Health"
+    hq: "Toronto, ON"
+    board: ashby
+    token: felix
+    # verified 2026-08-16: 30 open jobs
+  - name: "Flipp"
+    hq: "Toronto, ON"
+    board: greenhouse
+    token: flipp
+    # verified 2026-08-16: 11 open jobs
+  - name: "Float"
+    hq: "Toronto, ON"
+    board: ashby
+    token: float
+    # verified 2026-08-16: 25 open jobs
+  - name: "Fullscript"
+    hq: "Ottawa, ON"
+    board: lever
+    token: fullscript
+    # verified 2026-08-16: 20 open jobs
+  - name: "Geotab"
+    hq: "Oakville, ON"
+    board: greenhouse
+    token: geotab
+    # verified 2026-08-16: 102 open jobs
+  - name: "Hiive"
+    hq: "Vancouver, BC"
+    board: ashby
+    token: hiive
+    # verified 2026-08-16: 25 open jobs
+  - name: "Hivestack"
+    hq: "Montreal, QC"
+    board: greenhouse
+    token: hivestack
+    # verified 2026-08-16: 0 open jobs
+  - name: "Hootsuite"
+    hq: "Vancouver, BC"
+    board: greenhouse
+    token: hootsuite
+    # verified 2026-08-16: 23 open jobs
+  - name: "Hopper"
+    hq: "Montreal, QC"
+    board: ashby
+    token: hopper
+    # verified 2026-08-16: 43 open jobs
+  - name: "Ideogram"
+    hq: "Toronto, ON"
+    board: ashby
+    token: ideogram
+    # verified 2026-08-16: 3 open jobs
+  - name: "Jane App"
+    hq: "North Vancouver, BC"
+    board: ashby
+    token: jane
+    # verified 2026-08-16: 27 open jobs
+  - name: "Jobber"
+    hq: "Edmonton, AB"
+    board: ashby
+    token: jobber
+    # verified 2026-08-16: 37 open jobs
+  - name: "Kepler Communications"
+    hq: "Toronto, ON"
+    board: lever
+    token: kepler
+    # verified 2026-08-16: 33 open jobs
+  - name: "Klue"
+    hq: "Vancouver, BC"
+    board: ashby
+    token: klue
+    # verified 2026-08-16: 11 open jobs
+  - name: "Knak"
+    hq: "Ottawa, ON"
+    board: greenhouse
+    token: knak
+    # verified 2026-08-16: 3 open jobs
+  - name: "KOHO"
+    hq: "Toronto, ON"
+    board: ashby
+    token: koho
+    # verified 2026-08-16: 12 open jobs
+  - name: "Later"
+    hq: "Vancouver, BC"
+    board: greenhouse
+    token: later
+    # verified 2026-08-16: 34 open jobs
+  - name: "Lightspeed Commerce"
+    hq: "Montreal, QC"
+    board: ashby
+    token: lightspeedhq
+    # verified 2026-08-16: 146 open jobs
+  - name: "Loopio"
+    hq: "Toronto, ON"
+    board: ashby
+    token: loopio
+    # verified 2026-08-16: 5 open jobs
+  - name: "Magnet Forensics"
+    hq: "Waterloo, ON"
+    board: lever
+    token: magnetforensics
+    # verified 2026-08-16: 45 open jobs
+  - name: "Maple"
+    hq: "Toronto, ON"
+    board: lever
+    token: getmaple
+    # verified 2026-08-16: 12 open jobs
+  - name: "Miovision"
+    hq: "Kitchener, ON"
+    board: ashby
+    token: miovision
+    # verified 2026-08-16: 10 open jobs
+  - name: "Mistplay"
+    hq: "Montreal, QC"
+    board: lever
+    token: mistplay
+    # verified 2026-08-16: 6 open jobs
+  - name: "Neo Financial"
+    hq: "Calgary, AB"
+    board: ashby
+    token: neofinancial
+    # verified 2026-08-16: 96 open jobs
+  - name: "Newton"
+    hq: "Toronto, ON"
+    board: lever
+    token: newton
+    # verified 2026-08-16: 3 open jobs
+  - name: "Noibu"
+    hq: "Ottawa, ON"
+    board: ashby
+    token: noibu
+    # verified 2026-08-16: 3 open jobs
+  - name: "Pine"
+    hq: "Toronto, ON"
+    board: greenhouse
+    token: pine
+    # verified 2026-08-16: 5 open jobs
+  - name: "PointClickCare"
+    hq: "Mississauga, ON"
+    board: lever
+    token: pointclickcare
+    # verified 2026-08-16: 102 open jobs
+  - name: "Poka"
+    hq: "Quebec City, QC"
+    board: greenhouse
+    token: poka
+    # verified 2026-08-16: 8 open jobs
+  - name: "Procurify"
+    hq: "Vancouver, BC"
+    board: ashby
+    token: procurify
+    # verified 2026-08-16: 8 open jobs
+  - name: "Relay"
+    hq: "Toronto, ON"
+    board: ashby
+    token: relayfi
+    # verified 2026-08-16: 39 open jobs
+  - name: "Rewind"
+    hq: "Ottawa, ON"
+    board: ashby
+    token: rewind
+    # verified 2026-08-16: 2 open jobs
+  - name: "Security Compass"
+    hq: "Toronto, ON"
+    board: greenhouse
+    token: securitycompass
+    # verified 2026-08-16: 0 open jobs
+  - name: "Shakepay"
+    hq: "Montreal, QC"
+    board: greenhouse
+    token: shakepay
+    # verified 2026-08-16: 11 open jobs
+  - name: "Solink"
+    hq: "Ottawa, ON"
+    board: ashby
+    token: solink
+    # verified 2026-08-16: 18 open jobs
+  - name: "StackAdapt"
+    hq: "Toronto, ON"
+    board: greenhouse
+    token: stackadapt
+    # verified 2026-08-16: 95 open jobs
+  - name: "Tenstorrent"
+    hq: "Toronto, ON"
+    board: greenhouse
+    token: tenstorrent
+    # verified 2026-08-16: 131 open jobs
+  - name: "Thinkific"
+    hq: "Vancouver, BC"
+    board: ashby
+    token: thinkific
+    # verified 2026-08-16: 3 open jobs
+  - name: "TouchBistro"
+    hq: "Toronto, ON"
+    board: greenhouse
+    token: touchbistro
+    # verified 2026-08-16: 0 open jobs
+  - name: "Trulioo"
+    hq: "Vancouver, BC"
+    board: ashby
+    token: trulioo
+    # verified 2026-08-16: 43 open jobs
+  - name: "Tucows"
+    hq: "Toronto, ON"
+    board: greenhouse
+    token: tucows
+    # verified 2026-08-16: 2 open jobs
+  - name: "Unbounce"
+    hq: "Vancouver, BC"
+    board: greenhouse
+    token: unbounce
+    # verified 2026-08-16: 0 open jobs
+  - name: "Waabi"
+    hq: "Toronto, ON"
+    board: lever
+    token: waabi
+    # verified 2026-08-16: 58 open jobs
+  - name: "Wattpad"
+    hq: "Toronto, ON"
+    board: lever
+    token: wattpad
+    # verified 2026-08-16: 27 open jobs
+  - name: "Wave"
+    hq: "Toronto, ON"
+    board: lever
+    token: waveapps
+    # verified 2026-08-16: 8 open jobs
+  - name: "Wealthsimple"
+    hq: "Toronto, ON"
+    board: ashby
+    token: wealthsimple
+    # verified 2026-08-16: 39 open jobs
+  - name: "Workleap"
+    hq: "Montreal, QC"
+    board: greenhouse
+    token: workleap
+    # verified 2026-08-16: 12 open jobs
