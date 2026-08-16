@@ -113,7 +113,16 @@ All items below were decided and completed on branch `p0/audit-fixes` (4→6 com
 - ✅ §1 — Rate limiting: `slowapi`, per-IP, on all three routes (`app/rate_limit.py`) — 5/min scrape, 2/min bulk-scrape, 10/min job-create. Verified live (curl) that the 3rd rapid call actually 429s.
 - ✅ §4 — DB indexes: migration `0002_add_indexes` — `date_scraped` (DESC, serves `GET /jobs`'s default unfiltered listing), `company` + an expression index on `lower(company)` (matches `jobs.py`'s exact filter), `title`, and a GIN index on `skills`. Rehearsed locally with `EXPLAIN`: the date/company indexes are confirmed used by the real queries; the GIN index does *not* speed up today's `trends.py` aggregates (those scan every row by design, unfiltered) — it's there for the `skills @> ARRAY[...]`-style containment queries P5's per-user matching will need, which don't exist yet. Being explicit about that rather than overclaiming it.
 
-## Still open
+## Audit closed — 2026-08-16
 
-- Not yet applied to production: migration `0002_add_indexes`, and Railway needs a real `ADMIN_API_KEY` set (currently unset there → the three mutating routes correctly 503 until it's configured — fails closed, not open).
-- LinkedIn scraper still gated off by default (`ENABLE_LINKEDIN_SCRAPER` unset in Railway) — unchanged since P0, still the right call until P1's real sources land.
+Every finding in this document is now either fixed and verified in production, or
+explicitly assigned to a later phase (tracked in [reports/p0_report.md](reports/p0_report.md)'s
+"Carried forward" table). Final verification, live against prod:
+
+- Migration `0002_add_indexes` applied automatically by the deploy pipeline (prod at rev `0002`, all 5 indexes present, 5,862 rows untouched).
+- `ADMIN_API_KEY` set in Railway; auth verified live — no key → 401, wrong key → 401, real key → passes through (to the expected scraper-disabled 503).
+- Rate limiting verified live (3rd rapid bulk-scrape call → 429).
+- LinkedIn scraper remains gated off (`ENABLE_LINKEDIN_SCRAPER` unset) — deliberate, until P1's sources replace it.
+
+This document is now a historical record; new findings go in fresh issues or the
+next phase's tracking, not here.

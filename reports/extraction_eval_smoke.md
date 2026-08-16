@@ -1,6 +1,6 @@
 # Extraction eval — baseline_extractor (spaCy)
 
-Generated 2026-08-11T09:28:27+00:00 against `eval/fixtures/smoke_listings.jsonl`
+Generated 2026-08-16T08:53:54+00:00 against `eval/fixtures/smoke_listings.jsonl`
 
 **10 listings** — **10/10 human-verified** (100%). Numbers below cover all rows; treat auto-accepted rows as a weaker signal than the human-verified subset when the two diverge.
 
