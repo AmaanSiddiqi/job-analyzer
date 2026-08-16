@@ -65,13 +65,47 @@ async def test_trends_top_n_validation(client):
 
 async def test_scrape_disabled_by_default(client, monkeypatch):
     """scraper/linkedin.py is deprecated (CLAUDE.md) — off unless explicitly enabled."""
+    monkeypatch.setenv("ADMIN_API_KEY", "test-key")
     monkeypatch.delenv("ENABLE_LINKEDIN_SCRAPER", raising=False)
-    r = await client.post("/scrape", json={"keywords": "software engineer", "max_pages": 1})
+    r = await client.post(
+        "/scrape",
+        json={"keywords": "software engineer", "max_pages": 1},
+        headers={"X-Admin-Key": "test-key"},
+    )
     assert r.status_code == 503
     assert "ENABLE_LINKEDIN_SCRAPER" in r.json()["detail"]
 
 
 async def test_scrape_bulk_disabled_by_default(client, monkeypatch):
+    monkeypatch.setenv("ADMIN_API_KEY", "test-key")
     monkeypatch.delenv("ENABLE_LINKEDIN_SCRAPER", raising=False)
-    r = await client.post("/scrape/bulk", json={})
+    r = await client.post("/scrape/bulk", json={}, headers={"X-Admin-Key": "test-key"})
     assert r.status_code == 503
+
+
+async def test_mutating_routes_503_when_admin_key_unconfigured(client, monkeypatch):
+    """Fails closed, per AUDIT.md §1: unset ADMIN_API_KEY disables the route, not opens it."""
+    monkeypatch.delenv("ADMIN_API_KEY", raising=False)
+    r = await client.post("/scrape", json={})
+    assert r.status_code == 503
+    assert "ADMIN_API_KEY" in r.json()["detail"]
+
+    r = await client.post("/jobs", json={})
+    assert r.status_code == 503
+
+
+async def test_mutating_routes_reject_missing_or_wrong_key(client, monkeypatch):
+    monkeypatch.setenv("ADMIN_API_KEY", "test-key")
+
+    r = await client.post("/scrape", json={})  # no header at all
+    assert r.status_code == 401
+
+    r = await client.post("/scrape", json={}, headers={"X-Admin-Key": "wrong"})
+    assert r.status_code == 401
+
+
+async def test_create_job_requires_admin_key(client, monkeypatch):
+    """Auth is enforced before the route body runs — 401 regardless of payload shape."""
+    monkeypatch.setenv("ADMIN_API_KEY", "test-key")
+    r = await client.post("/jobs", json={})
+    assert r.status_code == 401

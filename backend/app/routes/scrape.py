@@ -1,11 +1,13 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..auth import require_admin_key
 from ..database import AsyncSessionLocal, get_db
+from ..rate_limit import limiter
 from ..scheduler import KEYWORDS
 from ..services.scraper import LinkedInScrapingDisabled, linkedin_scraper_enabled, run_scrape
 
@@ -38,8 +40,9 @@ class BulkScrapeStarted(BaseModel):
     location: str
 
 
-@router.post("", response_model=ScrapeResponse)
-async def scrape_jobs(payload: ScrapeRequest, db: AsyncSession = Depends(get_db)):
+@router.post("", response_model=ScrapeResponse, dependencies=[Depends(require_admin_key)])
+@limiter.limit("5/minute")
+async def scrape_jobs(request: Request, payload: ScrapeRequest, db: AsyncSession = Depends(get_db)):
     try:
         result = await run_scrape(payload.keywords, payload.max_pages, db, location=payload.location)
     except LinkedInScrapingDisabled as e:
@@ -60,8 +63,10 @@ async def _run_bulk(max_pages: int, location: str) -> None:
     log.info("Bulk scrape complete")
 
 
-@router.post("/bulk", response_model=BulkScrapeStarted)
+@router.post("/bulk", response_model=BulkScrapeStarted, dependencies=[Depends(require_admin_key)])
+@limiter.limit("2/minute")
 async def scrape_bulk(
+    request: Request,
     background_tasks: BackgroundTasks,
     payload: BulkScrapeRequest = BulkScrapeRequest(),
 ):
