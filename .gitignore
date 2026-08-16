@@ -31,3 +31,6 @@ backend/.testvenv/
 # tracked normally, once it exists.
 backend/eval/gold/listings_pool.jsonl
 backend/eval/gold/extraction_skills.draft.jsonl
+
+# macOS
+.DS_Store
