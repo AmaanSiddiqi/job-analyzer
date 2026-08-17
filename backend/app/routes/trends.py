@@ -1,4 +1,5 @@
 from collections import defaultdict
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select, text
@@ -16,6 +17,8 @@ from ..schemas import (
     SkillTrend,
     SkillTrendsResponse,
     SkillWeekPoint,
+    SourceCount,
+    SourceTrendsResponse,
     StatsResponse,
 )
 
@@ -92,6 +95,37 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
     ) or 0
     last_scraped = await db.scalar(select(func.max(JobPosting.date_scraped)).select_from(JobPosting))
     return StatsResponse(total_jobs=total_jobs, total_companies=total_companies, last_scraped=last_scraped)
+
+
+@router.get("/sources", response_model=SourceTrendsResponse)
+async def trends_sources(db: AsyncSession = Depends(get_db)):
+    """Posting counts per ingestion source, all-time and last 7 days.
+
+    The recent window is what makes a stalled source obvious — a large
+    historical total (e.g. the frozen LinkedIn corpus) otherwise hides the
+    fact that nothing new is arriving from it.
+    """
+    all_time = (
+        await db.execute(
+            select(JobPosting.source_type, func.count().label("n"))
+            .group_by(JobPosting.source_type)
+            .order_by(text("n DESC"))
+        )
+    ).all()
+    cutoff = datetime.now(UTC) - timedelta(days=7)
+    recent = (
+        await db.execute(
+            select(JobPosting.source_type, func.count().label("n"))
+            .where(JobPosting.date_scraped >= cutoff)
+            .group_by(JobPosting.source_type)
+            .order_by(text("n DESC"))
+        )
+    ).all()
+    return SourceTrendsResponse(
+        total_jobs=await _total_jobs(db),
+        sources=[SourceCount(source_type=s, count=n) for s, n in all_time],
+        recent_sources=[SourceCount(source_type=s, count=n) for s, n in recent],
+    )
 
 
 @router.get("/skills/history", response_model=SkillHistoryResponse)

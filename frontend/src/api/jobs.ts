@@ -10,6 +10,28 @@ export interface JobPosting {
   date_scraped: string;
   source_url: string;
   raw_description: string;
+  source_type: string;
+}
+
+/** Filters accepted by GET /jobs and GET /jobs/count (all optional, AND'd). */
+export interface JobFilters {
+  company?: string;
+  location?: string;
+  source_type?: string;
+  skill?: string;
+  q?: string;
+  since_days?: number;
+}
+
+export interface SourceCount {
+  source_type: string;
+  count: number;
+}
+
+export interface SourceTrendsResponse {
+  total_jobs: number;
+  sources: SourceCount[];
+  recent_sources: SourceCount[];
 }
 
 export interface SkillTrend {
@@ -54,8 +76,14 @@ export interface ScrapeResponse {
   skipped: number;
 }
 
-export const fetchJobs = (params?: { skip?: number; limit?: number; location?: string; company?: string }) =>
+export const fetchJobs = (params?: JobFilters & { skip?: number; limit?: number }) =>
   api.get<JobPosting[]>("/jobs", { params }).then((r) => r.data);
+
+export const fetchJobCount = (params?: JobFilters) =>
+  api.get<{ total: number }>("/jobs/count", { params }).then((r) => r.data.total);
+
+export const fetchSourceTrends = () =>
+  api.get<SourceTrendsResponse>("/trends/sources").then((r) => r.data);
 
 export const fetchSkillTrends = (top_n = 20) =>
   api.get<SkillTrendsResponse>("/trends/skills", { params: { top_n } }).then((r) => r.data);
@@ -97,6 +125,16 @@ export interface BulkScrapeStarted {
 
 export const triggerBulkScrape = (max_pages = 10, location = "Canada") =>
   postWithAdminKey<BulkScrapeStarted>("/scrape/bulk", { max_pages, location });
+
+export interface IngestStarted {
+  status: string;
+  detail: string;
+}
+
+/** Board ingestion runs ~2 minutes server-side, so this starts it in the
+ *  background and returns immediately; poll the dashboard to see results. */
+export const triggerBoardIngest = () =>
+  postWithAdminKey<IngestStarted>("/ingest/boards/async", {});
 
 export interface SkillWeekPoint {
   week: string;

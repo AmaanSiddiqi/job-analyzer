@@ -1,45 +1,52 @@
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import SkillsChart from "./components/SkillsChart";
 import RolesChart from "./components/RolesChart";
 import CompaniesChart from "./components/CompaniesChart";
 import JobTable from "./components/JobTable";
 import SkillHistoryChart from "./components/SkillHistoryChart";
+import FilterBar from "./components/FilterBar";
+import SourceBreakdown from "./components/SourceBreakdown";
 import {
   fetchJobs,
+  fetchJobCount,
   fetchSkillTrends,
   fetchRoleTrends,
   fetchCompanyTrends,
   fetchSkillHistory,
+  fetchSourceTrends,
   fetchStats,
-  triggerScrape,
-  triggerBulkScrape,
+  triggerBoardIngest,
+  JobFilters,
   JobPosting,
   SkillTrend,
   RoleTrend,
   CompanyTrend,
   SkillHistorySeries,
+  SourceCount,
   StatsResponse,
 } from "./api/jobs";
 
-type ScrapeStatus = "idle" | "loading" | "done" | "error";
-type BulkStatus = "idle" | "loading" | "started";
+type IngestStatus = "idle" | "loading" | "started" | "error";
 
-function describeScrapeError(e: unknown): string {
+const PAGE_SIZE = 100;
+
+function describeAdminError(e: unknown): string {
   const status = (e as { response?: { status?: number } })?.response?.status;
-  if (status === 401) return "Wrong admin key — click Scrape again to re-enter it.";
+  if (status === 401) return "Wrong admin key — click again to re-enter it.";
   if (status === 429) return "Rate limited — wait a minute and try again.";
   if (status === 503) {
     const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-    return detail ?? "Scraping is currently disabled.";
+    return detail ?? "Ingestion is currently disabled.";
   }
-  return "Scrape failed — check backend logs.";
+  return "Request failed — check backend logs.";
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-5 py-4">
       <p className="text-xs text-gray-400 uppercase tracking-wide">{label}</p>
       <p className="text-2xl font-bold text-gray-800 mt-1">{value}</p>
+      {hint && <p className="text-xs text-gray-400 mt-0.5">{hint}</p>}
     </div>
   );
 }
@@ -47,222 +54,259 @@ function StatCard({ label, value }: { label: string; value: string }) {
 export default function App() {
   const [jobs, setJobs] = useState<JobPosting[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
+  const [resultCount, setResultCount] = useState<number | null>(null);
+  const [page, setPage] = useState(0);
+
   const [skills, setSkills] = useState<SkillTrend[]>([]);
   const [roles, setRoles] = useState<RoleTrend[]>([]);
   const [companies, setCompanies] = useState<CompanyTrend[]>([]);
   const [history, setHistory] = useState<SkillHistorySeries[]>([]);
+  const [sources, setSources] = useState<SourceCount[]>([]);
+  const [recentSources, setRecentSources] = useState<SourceCount[]>([]);
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [dataLoading, setDataLoading] = useState(true);
 
-  const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
+  const [filters, setFilters] = useState<JobFilters>({});
+  const [ingestStatus, setIngestStatus] = useState<IngestStatus>("idle");
+  const [ingestMessage, setIngestMessage] = useState("");
 
-  const [keywords, setKeywords] = useState("software engineer");
-  const [scrapeCompany, setScrapeCompany] = useState("");
-  const [scrapeStatus, setScrapeStatus] = useState<ScrapeStatus>("idle");
-  const [scrapeResult, setScrapeResult] = useState<string>("");
-  const [bulkStatus, setBulkStatus] = useState<BulkStatus>("idle");
-
-  const loadJobs = useCallback((company?: string | null) => {
+  // Refetch the postings list and its count whenever filters or page change.
+  useEffect(() => {
+    let cancelled = false;
     setJobsLoading(true);
-    fetchJobs({ limit: 200, company: company ?? undefined })
-      .then(setJobs)
-      .finally(() => setJobsLoading(false));
-  }, []);
+    Promise.all([
+      fetchJobs({ ...filters, limit: PAGE_SIZE, skip: page * PAGE_SIZE }),
+      fetchJobCount(filters),
+    ])
+      .then(([rows, total]) => {
+        if (cancelled) return;
+        setJobs(rows);
+        setResultCount(total);
+      })
+      .finally(() => {
+        if (!cancelled) setJobsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [filters, page]);
 
-  const loadData = useCallback(() => {
+  const loadAggregates = useCallback(() => {
     setDataLoading(true);
     Promise.all([
       fetchSkillTrends(20),
       fetchRoleTrends(15),
       fetchCompanyTrends(15),
       fetchSkillHistory([], 8),
+      fetchSourceTrends(),
       fetchStats(),
     ])
-      .then(([skillsData, rolesData, companiesData, historyData, statsData]) => {
+      .then(([skillsData, rolesData, companiesData, historyData, sourcesData, statsData]) => {
         setSkills(skillsData.top_skills);
         setRoles(rolesData.top_roles);
         setCompanies(companiesData.top_companies);
         setHistory(historyData.series);
+        setSources(sourcesData.sources);
+        setRecentSources(sourcesData.recent_sources);
         setStats(statsData);
       })
       .finally(() => setDataLoading(false));
-    loadJobs(selectedCompany);
-  }, [loadJobs, selectedCompany]);
-
-  useEffect(() => {
-    // Mount-only fetch. loadData is intentionally omitted: it's recreated
-    // whenever selectedCompany changes, and including it here would refetch
-    // everything (skills/roles/companies/history) on every company-filter
-    // click instead of just the jobs list, which handleCompanyClick already
-    // handles directly.
-    loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleCompanyClick = (company: string) => {
-    const next = selectedCompany === company ? null : company;
-    setSelectedCompany(next);
-    loadJobs(next);
-  };
+  useEffect(() => {
+    loadAggregates();
+  }, [loadAggregates]);
 
-  const clearCompanyFilter = () => {
-    setSelectedCompany(null);
-    loadJobs(null);
-  };
+  // Any filter change resets pagination — otherwise page 3 of a narrower
+  // result set silently shows nothing.
+  const updateFilters = useCallback((next: JobFilters) => {
+    setFilters(next);
+    setPage(0);
+  }, []);
 
-  const handleScrape = async () => {
-    setScrapeStatus("loading");
-    setScrapeResult("");
-    const kw = scrapeCompany.trim()
-      ? `${keywords} ${scrapeCompany.trim()}`
-      : keywords;
+  const toggleFilter = useCallback(
+    <K extends keyof JobFilters>(key: K, value: JobFilters[K]) => {
+      setFilters((current) => ({
+        ...current,
+        [key]: current[key] === value ? undefined : value,
+      }));
+      setPage(0);
+    },
+    []
+  );
+
+  const handleIngest = async () => {
+    setIngestStatus("loading");
+    setIngestMessage("");
     try {
-      const result = await triggerScrape(kw, 2);
-      setScrapeResult(`+${result.inserted} new · ${result.skipped} dupes · ${result.fetched} fetched`);
-      setScrapeStatus("done");
-      loadData();
+      const result = await triggerBoardIngest();
+      setIngestMessage(result.detail);
+      setIngestStatus("started");
     } catch (e) {
-      setScrapeResult(describeScrapeError(e));
-      setScrapeStatus("error");
+      setIngestMessage(describeAdminError(e));
+      setIngestStatus("error");
     }
   };
 
-  const handleBulkScrape = async () => {
-    setBulkStatus("loading");
-    try {
-      await triggerBulkScrape(10);
-      setBulkStatus("started");
-    } catch (e) {
-      setScrapeResult(describeScrapeError(e));
-      setBulkStatus("idle");
-    }
-  };
-
-  const lastScraped = stats?.last_scraped
+  const lastIngest = stats?.last_scraped
     ? new Date(stats.last_scraped).toLocaleString("en-CA", {
-        month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
       })
     : "—";
+
+  const freshThisWeek = recentSources.reduce((sum, s) => sum + s.count, 0);
+  const hasFilters = Object.values(filters).some((v) => v !== undefined && v !== "");
+  const totalPages = resultCount ? Math.ceil(resultCount / PAGE_SIZE) : 1;
 
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
+        <div className="max-w-6xl mx-auto flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Canada Job Analyzer</h1>
+            <h1 className="text-xl font-bold text-gray-900">
+              Landed<span className="text-indigo-600">.</span>
+            </h1>
             <p className="text-sm text-gray-500 mt-0.5">
-              Tracks Canadian tech hiring trends — auto-scraped every 6 hours
+              Canadian tech hiring intelligence — {sources.length} sources, refreshed every 6 hours
             </p>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap justify-end">
-            <input
-              type="text"
-              value={keywords}
-              onChange={(e) => setKeywords(e.target.value)}
-              placeholder="keywords…"
-              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-            />
-            <input
-              type="text"
-              value={scrapeCompany}
-              onChange={(e) => setScrapeCompany(e.target.value)}
-              placeholder="company (optional)…"
-              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-44 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-            />
+          <div className="flex flex-col items-end gap-1">
             <button
-              onClick={handleScrape}
-              disabled={scrapeStatus === "loading"}
+              onClick={handleIngest}
+              disabled={ingestStatus === "loading"}
+              title="Fetch every configured company board now (runs in the background, ~2 min)"
               className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors"
             >
-              {scrapeStatus === "loading" ? "Scraping…" : "Scrape now"}
+              {ingestStatus === "loading" ? "Starting…" : "Ingest now"}
             </button>
-            <button
-              onClick={handleBulkScrape}
-              disabled={bulkStatus === "loading" || bulkStatus === "started"}
-              title="Scrape all preset keywords across Canada at high page depth — runs in background"
-              className="bg-gray-700 hover:bg-gray-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors"
-            >
-              {bulkStatus === "loading" ? "Starting…" : bulkStatus === "started" ? "Running in bg…" : "Full scrape"}
-            </button>
-            {scrapeResult && (
-              <span className={`text-xs ${scrapeStatus === "error" ? "text-red-500" : "text-gray-500"}`}>
-                {scrapeResult}
+            {ingestMessage && (
+              <span
+                className={`text-xs max-w-xs text-right ${
+                  ingestStatus === "error" ? "text-red-500" : "text-gray-500"
+                }`}
+              >
+                {ingestMessage}
               </span>
             )}
           </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+      <main className="max-w-6xl mx-auto px-6 py-8 space-y-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            label="Postings indexed"
+            value={stats?.total_jobs.toLocaleString() ?? "—"}
+          />
+          <StatCard label="Companies" value={stats?.total_companies.toLocaleString() ?? "—"} />
+          <StatCard
+            label="New this week"
+            value={dataLoading ? "—" : freshThisWeek.toLocaleString()}
+            hint={freshThisWeek === 0 ? "no new postings — check ingestion" : undefined}
+          />
+          <StatCard label="Last ingest" value={lastIngest} />
+        </div>
+
+        <FilterBar
+          filters={filters}
+          sources={sources}
+          skills={skills}
+          resultCount={resultCount}
+          onChange={updateFilters}
+        />
+
+        {/* Postings first: the filters above act on this list, so it belongs
+            directly beneath them rather than below the charts. */}
+        <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-semibold text-gray-800">Postings</h2>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-2 text-sm">
+                <button
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="px-2 py-1 rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-50"
+                >
+                  ←
+                </button>
+                <span className="text-gray-500 tabular-nums">
+                  {page + 1} / {totalPages}
+                </span>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                  className="px-2 py-1 rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-50"
+                >
+                  →
+                </button>
+              </div>
+            )}
+          </div>
+          {jobsLoading ? (
+            <p className="text-gray-400 text-sm py-4">Loading…</p>
+          ) : (
+            <JobTable
+              jobs={jobs}
+              hasFilters={hasFilters}
+              activeSkill={filters.skill}
+              onSelectSkill={(skill) => toggleFilter("skill", skill)}
+              onSelectCompany={(company) => toggleFilter("company", company)}
+            />
+          )}
+        </section>
+
         {dataLoading ? (
-          <div className="flex items-center justify-center h-64 text-gray-400 text-sm">
-            Loading…
+          <div className="flex items-center justify-center h-40 text-gray-400 text-sm">
+            Loading trends…
           </div>
         ) : (
           <>
-            {/* Stats row */}
-            <div className="grid grid-cols-3 gap-4">
-              <StatCard label="Postings indexed" value={stats?.total_jobs.toLocaleString() ?? "—"} />
-              <StatCard label="Companies" value={stats?.total_companies.toLocaleString() ?? "—"} />
-              <StatCard label="Last scraped" value={lastScraped} />
-            </div>
-
-            {/* Skill trend over time */}
-            <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-              <h2 className="text-base font-semibold text-gray-800 mb-1">
-                Skill Demand Over Time
-              </h2>
-              <p className="text-xs text-gray-400 mb-4">Weekly posting count for top skills — last 8 weeks</p>
-              <SkillHistoryChart series={history} />
-            </section>
-
-            {/* Bar charts row */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                <h2 className="text-base font-semibold text-gray-800 mb-1">Top Skills in Demand</h2>
+                <h2 className="text-base font-semibold text-gray-800 mb-1">Where postings come from</h2>
+                <p className="text-xs text-gray-400 mb-4">Click a source to filter the list</p>
+                <SourceBreakdown
+                  sources={sources}
+                  recentSources={recentSources}
+                  activeSource={filters.source_type}
+                  onSelect={(source) => updateFilters({ ...filters, source_type: source })}
+                />
+              </section>
+
+              <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 lg:col-span-2">
+                <h2 className="text-base font-semibold text-gray-800 mb-1">Skill demand over time</h2>
+                <p className="text-xs text-gray-400 mb-4">Weekly posting count for top skills — last 8 weeks</p>
+                <SkillHistoryChart series={history} />
+              </section>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                <h2 className="text-base font-semibold text-gray-800 mb-1">Top skills in demand</h2>
                 <p className="text-xs text-gray-400 mb-4">All-time frequency across indexed postings</p>
                 <SkillsChart data={skills} />
               </section>
 
               <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                <h2 className="text-base font-semibold text-gray-800 mb-1">Most Common Roles</h2>
+                <h2 className="text-base font-semibold text-gray-800 mb-1">Most common roles</h2>
                 <p className="text-xs text-gray-400 mb-4">Most frequently posted job titles</p>
                 <RolesChart data={roles} />
               </section>
 
               <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                <h2 className="text-base font-semibold text-gray-800 mb-1">Most Active Companies</h2>
+                <h2 className="text-base font-semibold text-gray-800 mb-1">Most active companies</h2>
                 <p className="text-xs text-gray-400 mb-4">Click a bar to filter postings by company</p>
                 <CompaniesChart
                   data={companies}
-                  activeCompany={selectedCompany}
-                  onBarClick={handleCompanyClick}
+                  activeCompany={filters.company ?? null}
+                  onBarClick={(company) => toggleFilter("company", company)}
                 />
               </section>
             </div>
-
-            {/* Job table */}
-            <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-base font-semibold text-gray-800">
-                  {selectedCompany ? `Postings — ${selectedCompany}` : "Recent Postings"}
-                </h2>
-                {selectedCompany && (
-                  <button
-                    onClick={clearCompanyFilter}
-                    className="flex items-center gap-1.5 text-xs bg-amber-100 text-amber-800 px-3 py-1 rounded-full hover:bg-amber-200 transition-colors"
-                  >
-                    {selectedCompany} <span className="font-bold">×</span>
-                  </button>
-                )}
-              </div>
-              {jobsLoading ? (
-                <p className="text-gray-400 text-sm py-4">Loading…</p>
-              ) : (
-                <JobTable jobs={jobs} />
-              )}
-            </section>
           </>
         )}
       </main>

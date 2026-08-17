@@ -2,7 +2,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import (
-    ARRAY,
     BigInteger,
     DateTime,
     Index,
@@ -13,7 +12,11 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+
+# Postgres-specific ARRAY, not sqlalchemy.ARRAY: the generic type has no
+# containment operator, so `skills @> ARRAY[...]` (the only form the GIN index
+# on skills can serve) isn't expressible with it. Same VARCHAR[] DDL either way.
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .database import Base

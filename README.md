@@ -1,8 +1,10 @@
-# Canada Job Analyzer
+# Landed
 
 [![CI](https://github.com/AmaanSiddiqi/job-analyzer/actions/workflows/ci.yml/badge.svg)](https://github.com/AmaanSiddiqi/job-analyzer/actions/workflows/ci.yml)
 
-A live job-market analysis app for Canadian tech roles: ~5,900 indexed postings, spaCy-based skill extraction, and a React dashboard of hiring trends — currently evolving from a single-user analyzer into a job-search intelligence product for international students and new grads in Canada, with visa/sponsorship signal extraction as the flagship feature.
+Job-search intelligence for international students and new grads in Canada. Named for the two things its users are working toward — *landing* a job, and *landed* status.
+
+Live app: ~7,200 indexed Canadian tech postings ingested from Greenhouse/Lever/Ashby company boards plus the Adzuna and Jooble aggregators, with spaCy skill extraction and a filterable dashboard of hiring trends. Visa/sponsorship signal extraction with verbatim evidence is the flagship feature in progress.
 
 **Live:** [jobs.amaansiddiqi.me](https://jobs.amaansiddiqi.me) · API on Railway · frontend on Vercel
 
