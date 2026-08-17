@@ -29,6 +29,31 @@ class Settings(BaseSettings):
     # Scheduler cadence for board ingestion runs.
     board_ingest_interval_hours: int = 6
 
+    # --- Aggregator ingestion (Adzuna + Jooble) ---
+
+    # Feature flag; also requires the API credentials below to be set.
+    enable_aggregator_ingestion: bool = False
+
+    # Free-tier credentials — register at developer.adzuna.com / jooble.org/api.
+    adzuna_app_id: str = ""
+    adzuna_app_key: str = ""
+    jooble_api_key: str = ""
+
+    # Adzuna pages fetched per keyword (50 results/page).
+    adzuna_pages_per_keyword: int = 2
+    # Only listings posted within this window (Adzuna max_days_old param);
+    # scheduled runs re-see recent posts, idempotency makes that a no-op.
+    aggregator_max_days_old: int = 7
+    # Jooble pages fetched per keyword.
+    jooble_pages_per_keyword: int = 2
+
+    # Whether aggregator listings also upsert into job_postings (the live
+    # dashboard table). Off by default: the same real job often appears on
+    # both a company board and an aggregator with different URLs, which
+    # double-counts trends until P2's canonical dedup lands. Aggregator data
+    # still lands in raw_listings (extraction input + company discovery).
+    aggregators_to_postings: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:

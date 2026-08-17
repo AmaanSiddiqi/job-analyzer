@@ -48,11 +48,19 @@ class FetchedListing(BaseModel):
     payload: dict[str, Any]
 
 
-def html_to_text(markup: str) -> str:
-    """Strip HTML to newline-separated text (mirrors the scraper's approach)."""
+def html_to_text(markup: str, *, inline: bool = False) -> str:
+    """Strip HTML to text; non-breaking spaces normalized to plain spaces.
+
+    inline=True collapses all whitespace to single spaces — for titles and
+    snippets, where BS4's newline separator would split at inline tags
+    ("Senior <strong>Engineer</strong>" must not become two lines).
+    """
     if not markup:
         return ""
-    return BeautifulSoup(markup, "lxml").get_text(separator="\n", strip=True)
+    text = BeautifulSoup(markup, "lxml").get_text(separator="\n", strip=True).replace("\xa0", " ")
+    if inline:
+        return " ".join(text.split())
+    return text
 
 
 def _parse_iso(value: str | None) -> datetime | None:

@@ -55,6 +55,18 @@ async def _ingest_boards() -> None:
     log.info("Scheduled board ingestion complete")
 
 
+async def _ingest_aggregators() -> None:
+    from .ingestion.service import run_aggregator_ingestion
+
+    log.info("Scheduled aggregator ingestion starting")
+    try:
+        async with AsyncSessionLocal() as db:
+            await run_aggregator_ingestion(db)
+    except Exception:
+        log.exception("Scheduled aggregator ingestion failed")
+    log.info("Scheduled aggregator ingestion complete")
+
+
 def start(interval_hours: int = 6) -> None:
     settings = get_settings()
     jobs = 0
@@ -85,6 +97,20 @@ def start(interval_hours: int = 6) -> None:
         jobs += 1
     else:
         log.info("Board ingestion is disabled (ENABLE_BOARD_INGESTION unset) — not scheduled.")
+
+    if settings.enable_aggregator_ingestion:
+        _scheduler.add_job(
+            _ingest_aggregators,
+            trigger=IntervalTrigger(hours=settings.board_ingest_interval_hours * 2),
+            id="ingest_aggregators",
+            replace_existing=True,
+            misfire_grace_time=300,
+        )
+        jobs += 1
+    else:
+        log.info(
+            "Aggregator ingestion is disabled (ENABLE_AGGREGATOR_INGESTION unset) — not scheduled."
+        )
 
     if not jobs:
         log.info("No ingestion sources enabled — scheduler not started.")
