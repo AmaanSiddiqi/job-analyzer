@@ -45,7 +45,7 @@ build-backend = "setuptools.build_meta"
 # (services/scraper.py imports `from scraper import linkedin`) — setuptools'
 # flat-layout auto-discovery refuses to guess between them, so list explicitly.
 [tool.setuptools.packages.find]
-include = ["app*", "scraper*", "eval*", "sources*"]
+include = ["app*", "scraper*", "eval*", "sources*", "taxonomy*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

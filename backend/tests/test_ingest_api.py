@@ -87,3 +87,17 @@ async def test_suggestions_yaml_endpoint(client):
         resp = await client.get("/ingest/suggestions", headers={"X-Admin-Key": "test-admin-key"})
     assert resp.status_code == 200
     assert resp.text.startswith('  - name: "Maple Analytics"')
+
+
+async def test_admin_unmapped_skills_requires_key(client):
+    resp = await client.get("/admin/unmapped-skills")
+    assert resp.status_code == 401
+
+
+async def test_admin_unmapped_skills_returns_queue(client):
+    resp = await client.get(
+        "/admin/unmapped-skills", headers={"X-Admin-Key": "test-admin-key"}
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "skills" in body and "total" in body

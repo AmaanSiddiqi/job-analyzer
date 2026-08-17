@@ -1,0 +1,589 @@
+# Canonical skill taxonomy (P1). Seeded from the frozen baseline extractor's
+# _SKILLS_VOCAB (app/services/nlp.py), then extended using the 150-listing
+# eval gold set: that vocabulary covered only 33% of real skill mentions
+# (106 of 1,116 distinct strings) and was missing sql, devops, observability,
+# data modeling — which is precisely the baseline's 0.312 recall.
+#
+# Rules (CLAUDE.md):
+#   * `id` is the canonical form stored on listings. Lowercase, stable —
+#     renaming one is a data migration, so treat ids as an API.
+#   * `aliases` are alternate spellings the extractor may emit. Matching is
+#     case-insensitive and punctuation-insensitive (see taxonomy/config.py),
+#     so "Node.js"/"nodejs"/"NODE JS" all resolve without separate entries.
+#   * NO auto-expansion. Unmapped skills accumulate in the unmapped_skills
+#     table for weekly review; adding an entry is a reviewed commit.
+#   * Cap ~200 canonical ids. At the cap, prefer breadth of concept over
+#     near-duplicate tools.
+version: 1
+skills:
+  # ---------------- Languages ----------------
+  - id: python
+    category: language
+  - id: javascript
+    category: language
+    aliases: [js, ecmascript]
+  - id: typescript
+    category: language
+    aliases: [ts]
+  - id: java
+    category: language
+  - id: go
+    category: language
+    aliases: [golang]
+  - id: rust
+    category: language
+  - id: c++
+    category: language
+    aliases: [cpp]
+  - id: c#
+    category: language
+    aliases: [csharp, .net, dotnet, xamarin, .net maui, asp.net core]
+  - id: ruby
+    category: language
+  - id: php
+    category: language
+  - id: swift
+    category: language
+  - id: kotlin
+    category: language
+  - id: scala
+    category: language
+  - id: r
+    category: language
+  - id: bash
+    category: language
+    aliases: [shell, shell scripting, zsh, sh]
+  - id: perl
+    category: language
+  - id: elixir
+    category: language
+  # haskell and lua were in the seed vocabulary but had zero mentions across
+  # the 150-listing gold set; at the ~200 cap their slots went to concepts the
+  # data actually shows. The review queue will resurface them if they appear.
+  - id: sql
+    category: language
+    aliases: [structured query language, t-sql, pl/sql, ansi sql]
+  - id: html
+    category: language
+    aliases: [html5]
+  - id: css
+    category: language
+    aliases: [css3, sass, scss, less]
+
+  # ---------------- Frontend ----------------
+  - id: react
+    category: frontend
+    aliases: [react.js, reactjs, redux, react hooks]
+  - id: vue
+    category: frontend
+    aliases: [vue.js, vuejs]
+  - id: angular
+    category: frontend
+    aliases: [angular.js, angularjs]
+  - id: next.js
+    category: frontend
+    aliases: [nextjs]
+  - id: nuxt
+    category: frontend
+    aliases: [nuxt.js]
+  - id: svelte
+    category: frontend
+    aliases: [sveltekit]
+  - id: jquery
+    category: frontend
+  - id: tailwind
+    category: frontend
+    aliases: [tailwindcss, tailwind css]
+  - id: responsive design
+    category: frontend
+    aliases: [responsive web design, mobile-first design]
+  - id: accessibility
+    category: frontend
+    aliases: [a11y, wcag]
+  - id: ui/ux
+    category: frontend
+    aliases: [ux design, ui design, user experience, ux/ui]
+  - id: figma
+    category: frontend
+  - id: design systems
+    category: frontend
+
+  # ---------------- Backend & APIs ----------------
+  - id: node.js
+    category: backend
+    aliases: [nodejs, node, fastify, nestjs, koa]
+  - id: express
+    category: backend
+    aliases: [express.js, expressjs]
+  - id: fastapi
+    category: backend
+  - id: django
+    category: backend
+  - id: flask
+    category: backend
+  - id: rails
+    category: backend
+    aliases: [ruby on rails]
+  - id: spring boot
+    category: backend
+    aliases: [spring, spring framework]
+  - id: asp.net
+    category: backend
+  - id: laravel
+    category: backend
+  - id: rest
+    category: api
+    aliases: [rest api, rest apis, restful, restful api, restful apis, rest services, web services]
+  - id: graphql
+    category: api
+  - id: grpc
+    category: api
+  - id: websockets
+    category: api
+    aliases: [websocket]
+  - id: api design
+    category: api
+    aliases: [apis, api development, api integration, api gateway]
+  - id: openapi
+    category: api
+    aliases: [swagger]
+  - id: oauth
+    category: api
+    aliases: [oauth2, oauth 2.0, sso, saml, openid connect]
+  - id: jwt
+    category: api
+  - id: backend development
+    category: backend
+    aliases: [server-side development, back-end development]
+  - id: full-stack development
+    category: backend
+    aliases: [full stack, fullstack, full-stack]
+
+  # ---------------- Mobile ----------------
+  - id: react native
+    category: mobile
+  - id: flutter
+    category: mobile
+  - id: ios
+    category: mobile
+  - id: android
+    category: mobile
+
+  # ---------------- ML / AI ----------------
+  - id: machine learning
+    category: ml
+    aliases: [ml, machine learning algorithms, supervised learning, unsupervised learning, reinforcement learning]
+  - id: deep learning
+    category: ml
+    aliases: [neural networks]
+  - id: artificial intelligence
+    category: ml
+    aliases: [ai]
+  - id: generative ai
+    category: ml
+    aliases: [genai, gen ai, generative artificial intelligence]
+  - id: large language models
+    category: ml
+    aliases: [llm, llms, foundation models]
+  - id: rag
+    category: ml
+    aliases: [retrieval augmented generation, retrieval-augmented generation]
+  - id: prompt engineering
+    category: ml
+  - id: ai agents
+    category: ml
+    aliases: [agentic ai, autonomous agents, agent frameworks, multi-agent systems]
+  - id: mcp
+    category: ml
+    aliases: [model context protocol]
+  - id: fine-tuning
+    category: ml
+    aliases: [fine tuning, model fine-tuning]
+  - id: langchain
+    category: ml
+  - id: nlp
+    category: ml
+    aliases: [natural language processing]
+  - id: computer vision
+    category: ml
+    aliases: [cv, image processing]
+  - id: pytorch
+    category: ml
+  - id: tensorflow
+    category: ml
+  - id: keras
+    category: ml
+  - id: scikit-learn
+    category: ml
+    aliases: [sklearn]
+  - id: hugging face
+    category: ml
+    aliases: [huggingface, transformers]
+  - id: xgboost
+    category: ml
+    aliases: [lightgbm, gradient boosting]
+  - id: spacy
+    category: ml
+  - id: mlops
+    category: ml
+    aliases: [ml ops, model deployment, model serving, model monitoring, model training]
+  - id: model evaluation
+    category: ml
+    aliases: [llm evaluation, model validation, llm-as-judge]
+  - id: feature engineering
+    category: ml
+  - id: recommendation systems
+    category: ml
+    aliases: [recommender systems, personalization]
+  - id: predictive modeling
+    category: ml
+    aliases: [predictive analytics, forecasting]
+  - id: anomaly detection
+    category: ml
+    aliases: [fraud detection, outlier detection]
+
+  # ---------------- Data ----------------
+  - id: data science
+    category: data
+  - id: data engineering
+    category: data
+  - id: data analysis
+    category: data
+    aliases: [data analytics, analytics]
+  - id: data modeling
+    category: data
+    aliases: [dimensional modeling, relational data modeling, data models, schema design, data architecture]
+  - id: data pipelines
+    category: data
+    aliases: [data pipeline, pipeline development]
+  - id: etl
+    category: data
+    aliases: [elt, etl/elt, data integration, azure data factory, informatica, ssis]
+  - id: data warehouse
+    category: data
+    aliases: [data warehousing, dwh]
+  - id: data lake
+    category: data
+    aliases: [lakehouse, data lakehouse]
+  - id: data governance
+    category: data
+    aliases: [data stewardship, data lineage, master data management]
+  - id: data quality
+    category: data
+    aliases: [data validation, data cleansing, data profiling]
+  - id: data visualization
+    category: data
+    aliases: [dataviz, dashboarding, dashboards]
+  - id: business intelligence
+    category: data
+    aliases: [bi, bi reporting]
+  - id: statistics
+    category: data
+    aliases: [statistical analysis, statistical modeling, statistical methods]
+  - id: a/b testing
+    category: data
+    aliases: [ab testing, experimentation, split testing]
+  - id: big data
+    category: data
+    aliases: [distributed processing, large-scale data]
+  - id: spark
+    category: data
+    aliases: [apache spark, pyspark]
+  - id: hadoop
+    category: data
+    aliases: [hdfs, mapreduce]
+  - id: kafka
+    category: data
+    aliases: [apache kafka, event streaming, event streams]
+  - id: airflow
+    category: data
+    aliases: [apache airflow, dagster, prefect, workflow orchestration]
+  - id: dbt
+    category: data
+  - id: flink
+    category: data
+    aliases: [apache flink, stream processing]
+  - id: pandas
+    category: data
+  - id: numpy
+    category: data
+  - id: databricks
+    category: data
+  - id: power bi
+    category: data
+    aliases: [powerbi, microsoft power bi]
+  - id: tableau
+    category: data
+  - id: looker
+    category: data
+    aliases: [looker studio, google data studio]
+  - id: excel
+    category: data
+    aliases: [microsoft excel, spreadsheets, vba]
+
+  # ---------------- Databases ----------------
+  - id: postgresql
+    category: database
+    aliases: [postgres, psql]
+  - id: mysql
+    category: database
+    aliases: [mariadb]
+  - id: sqlite
+    category: database
+  - id: mongodb
+    category: database
+    aliases: [mongo]
+  - id: redis
+    category: database
+    aliases: [memcached, caching]
+  - id: elasticsearch
+    category: database
+    aliases: [opensearch, elastic]
+  - id: cassandra
+    category: database
+  - id: dynamodb
+    category: database
+  - id: bigquery
+    category: database
+    aliases: [google bigquery]
+  - id: snowflake
+    category: database
+  - id: redshift
+    category: database
+    aliases: [amazon redshift]
+  - id: supabase
+    category: database
+  - id: firebase
+    category: database
+  - id: nosql
+    category: database
+    aliases: [non-relational databases, document databases]
+  - id: relational databases
+    category: database
+    aliases: [rdbms, relational database design, databases, oracle, sql server, ms sql, db2]
+  - id: vector databases
+    category: database
+    aliases: [pgvector, pinecone, weaviate, embeddings]
+  - id: database migrations
+    category: database
+    aliases: [schema migrations, alembic, flyway]
+  - id: query optimization
+    category: database
+    aliases: [sql tuning, database performance tuning, indexing]
+
+  # ---------------- Cloud ----------------
+  - id: aws
+    category: cloud
+    aliases: [amazon web services, ecs, sqs, sns, ec2, eks fargate]
+  - id: azure
+    category: cloud
+    aliases: [microsoft azure]
+  - id: gcp
+    category: cloud
+    aliases: [google cloud, google cloud platform]
+  - id: cloud architecture
+    category: cloud
+    aliases: [cloud platforms, cloud computing, cloud infrastructure, cloud-native]
+  - id: serverless
+    category: cloud
+    aliases: [aws lambda, lambda, azure functions, cloud functions]
+  - id: s3
+    category: cloud
+    aliases: [amazon s3, object storage, blob storage]
+  - id: cost optimization
+    category: cloud
+    aliases: [cloud cost management, finops]
+
+  # ---------------- Infrastructure & DevOps ----------------
+  - id: docker
+    category: infra
+    aliases: [containerization, containers]
+  - id: kubernetes
+    category: infra
+    aliases: [k8s, eks, gke, aks]
+  - id: terraform
+    category: infra
+  - id: ansible
+    category: infra
+    aliases: [puppet, chef, configuration management]
+  - id: helm
+    category: infra
+  - id: cloudformation
+    category: infra
+    aliases: [aws cdk, cdk]
+  - id: pulumi
+    category: infra
+  - id: infrastructure as code
+    category: infra
+    aliases: [iac, infrastructure-as-code]
+  - id: ci/cd
+    category: infra
+    aliases: [cicd, continuous integration, continuous delivery, continuous deployment, build pipelines, azure devops]
+  - id: github actions
+    category: infra
+  - id: gitlab ci
+    category: infra
+  - id: jenkins
+    category: infra
+  - id: circleci
+    category: infra
+    aliases: [travis ci, buildkite]
+  - id: devops
+    category: infra
+  - id: platform engineering
+    category: infra
+    aliases: [internal developer platform, developer experience, devex]
+  - id: site reliability engineering
+    category: infra
+    aliases: [sre, reliability engineering]
+  - id: linux
+    category: infra
+    aliases: [unix]
+  - id: nginx
+    category: infra
+    aliases: [apache, load balancing, reverse proxy]
+  - id: networking
+    category: infra
+    aliases: [tcp/ip, dns, vpc, network configuration]
+  - id: monitoring
+    category: infra
+    aliases: [prometheus, grafana, datadog, dynatrace, new relic]
+  - id: observability
+    category: infra
+    aliases: [distributed tracing, opentelemetry, apm]
+  - id: logging
+    category: infra
+    aliases: [log aggregation, splunk, elk]
+  - id: incident management
+    category: infra
+    aliases: [on-call, incident response, root cause analysis, postmortems]
+  - id: slos
+    category: infra
+    aliases: [slo, sli, slis, error budgets, service level objectives]
+  - id: performance tuning
+    category: infra
+    aliases: [performance optimization, performance engineering, capacity planning]
+  - id: high availability
+    category: infra
+    aliases: [fault tolerance, disaster recovery, resiliency]
+  - id: scalability
+    category: infra
+    aliases: [scaling, horizontal scaling]
+
+  # ---------------- Security ----------------
+  - id: cybersecurity
+    category: security
+    aliases: [security, information security, infosec, application security, appsec, cloud security, network security]
+  - id: authentication
+    category: security
+    aliases: [authorization, access control, iam, rbac]
+  - id: encryption
+    category: security
+    aliases: [cryptography, tls, pki]
+  - id: vulnerability management
+    category: security
+    aliases: [penetration testing, pen testing, threat modeling, cve]
+  - id: compliance
+    category: security
+    aliases: [soc 2, gdpr, hipaa, pci dss, pipeda, data privacy]
+
+  # ---------------- Testing ----------------
+  - id: unit testing
+    category: testing
+  - id: integration testing
+    category: testing
+    aliases: [end-to-end testing, e2e testing]
+  - id: automated testing
+    category: testing
+    aliases: [test automation, automated tests]
+  - id: tdd
+    category: testing
+    aliases: [test driven development, test-driven development, bdd]
+  - id: pytest
+    category: testing
+  - id: jest
+    category: testing
+    aliases: [vitest, mocha, jasmine]
+  - id: cypress
+    category: testing
+    aliases: [playwright, puppeteer]
+  - id: selenium
+    category: testing
+  - id: qa
+    category: testing
+    aliases: [quality assurance, quality engineering, testing, manual testing]
+
+  # ---------------- Tooling & practice ----------------
+  - id: git
+    category: tooling
+    aliases: [version control, source control]
+  - id: github
+    category: tooling
+  - id: gitlab
+    category: tooling
+  - id: bitbucket
+    category: tooling
+  - id: jira
+    category: tooling
+    aliases: [confluence, atlassian]
+  - id: github copilot
+    category: tooling
+    aliases: [copilot, ai coding assistants, cursor, ai-assisted development]
+  - id: code review
+    category: practice
+    aliases: [code reviews, peer review, pull requests]
+  - id: debugging
+    category: practice
+    # "root cause analysis" belongs to incident management — it's an ops
+    # practice in these postings, not general debugging.
+    aliases: [troubleshooting, bug fixing]
+  - id: documentation
+    category: practice
+    aliases: [technical writing, technical documentation]
+  - id: agile
+    category: practice
+    aliases: [scrum, kanban, sprint planning, agile methodologies]
+  - id: microservices
+    category: practice
+    aliases: [microservice architecture, service oriented architecture, soa]
+  - id: event-driven architecture
+    category: practice
+    aliases: [event-driven, event driven, pub/sub, message queues]
+  - id: distributed systems
+    category: practice
+  - id: system design
+    category: practice
+    aliases: [software architecture, architecture design, solution architecture]
+  - id: algorithms
+    category: practice
+    aliases: [data structures, algorithms and data structures]
+  - id: automation
+    category: practice
+    aliases: [scripting, process automation]
+  - id: mentoring
+    category: practice
+    aliases: [coaching, technical leadership, mentorship]
+  - id: stakeholder management
+    category: practice
+    aliases: [cross-functional collaboration, stakeholder communication]
+  - id: project management
+    category: practice
+    aliases: [program management, delivery management]
+  - id: saas
+    category: domain
+    aliases: [software as a service, b2b saas]
+  - id: fintech
+    category: domain
+    aliases: [payments, banking technology]
+  - id: healthcare
+    category: domain
+    aliases: [healthtech, health informatics, ehr]
+  - id: e-commerce
+    category: domain
+    aliases: [ecommerce, retail technology, shopify]
+  - id: embedded systems
+    category: domain
+    aliases: [firmware, iot, real-time systems]
+  - id: game development
+    category: domain
+    aliases: [unity, unreal engine]
