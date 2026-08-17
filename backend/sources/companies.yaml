@@ -343,3 +343,28 @@ companies:
     board: greenhouse
     token: workleap
     # verified 2026-08-16: 12 open jobs
+  # --- Non-Canadian companies with substantial Canada-remote hiring ---
+  # Promoted from the aggregator discovery queue 2026-08-16 (Amaan approved).
+  # Their Canadian roles also arrive via Adzuna/Jooble, but board JSON gives
+  # full descriptions — better extraction input. The Canada filter discards
+  # their non-Canadian majority at ingest.
+  - name: "GitLab"
+    hq: "All-remote (US-incorporated)"
+    board: greenhouse
+    token: gitlab
+    # verified 2026-08-16: 197 open jobs, 54 Canadian
+  - name: "Mozilla"
+    hq: "San Francisco, CA (US)"
+    board: greenhouse
+    token: mozilla
+    # verified 2026-08-16: 86 open jobs, 47 Canadian
+  - name: "BeyondTrust"
+    hq: "Atlanta, GA (US)"
+    board: greenhouse
+    token: beyondtrust
+    # verified 2026-08-16: 57 open jobs, 25 Canadian
+  - name: "Life360"
+    hq: "San Francisco, CA (US)"
+    board: greenhouse
+    token: life360
+    # verified 2026-08-16: 28 open jobs, 13 Canadian
