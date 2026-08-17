@@ -4,6 +4,10 @@ One row per (raw_listing, prompt_version) — the unique constraint is what
 makes a prompt change additive rather than destructive, so an F1 regression
 stays attributable to a version and the previous extraction is still there.
 
+Eligibility gates (min_years_experience and friends) are the flagship signal
+family; min_years_experience carries a partial index because it is what the
+feed filters on and ~72% of postings state no number.
+
 Visa flags are nullable BOOLEAN on purpose: NULL means the posting doesn't
 address work authorization, which is different from FALSE (it says no). A
 partial index covers only the non-NULL rows, since most postings say nothing.
@@ -56,6 +60,12 @@ def upgrade() -> None:
     sa.Column('region', sa.Text(), nullable=True),
     sa.Column('country', sa.String(length=2), nullable=True),
     sa.Column('remote_policy', sa.Text(), nullable=False),
+    sa.Column('min_years_experience', sa.Integer(), nullable=True),
+    sa.Column('degree_required', sa.Boolean(), nullable=True),
+    sa.Column('french_required', sa.Boolean(), nullable=True),
+    sa.Column('is_new_grad_friendly', sa.Boolean(), nullable=True),
+    sa.Column('is_internship_or_coop', sa.Boolean(), nullable=True),
+    sa.Column('eligibility_evidence', postgresql.ARRAY(sa.String()), nullable=False),
     sa.Column('visa_sponsorship_available', sa.Boolean(), nullable=True),
     sa.Column('visa_requires_existing_authorization', sa.Boolean(), nullable=True),
     sa.Column('visa_citizenship_or_pr_required', sa.Boolean(), nullable=True),
@@ -70,12 +80,14 @@ def upgrade() -> None:
     op.create_index('ix_listing_components_prompt_version', 'listing_components', ['prompt_version'], unique=False)
     op.create_index('ix_listing_components_raw_listing_id', 'listing_components', ['raw_listing_id'], unique=False)
     op.create_index('ix_listing_components_skills_gin', 'listing_components', ['skills'], unique=False, postgresql_using='gin')
+    op.create_index('ix_listing_components_min_years', 'listing_components', ['min_years_experience'], unique=False, postgresql_where=sa.text('min_years_experience IS NOT NULL'))
     op.create_index('ix_listing_components_sponsorship', 'listing_components', ['visa_sponsorship_available'], unique=False, postgresql_where=sa.text('visa_sponsorship_available IS NOT NULL'))
 
 
 def downgrade() -> None:
     """Downgrade schema."""
     op.drop_index('ix_listing_components_sponsorship', table_name='listing_components', postgresql_where=sa.text('visa_sponsorship_available IS NOT NULL'))
+    op.drop_index('ix_listing_components_min_years', table_name='listing_components', postgresql_where=sa.text('min_years_experience IS NOT NULL'))
     op.drop_index('ix_listing_components_skills_gin', table_name='listing_components', postgresql_using='gin')
     op.drop_index('ix_listing_components_raw_listing_id', table_name='listing_components')
     op.drop_index('ix_listing_components_prompt_version', table_name='listing_components')

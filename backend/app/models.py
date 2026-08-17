@@ -161,6 +161,18 @@ class ListingComponent(Base):
     country: Mapped[str | None] = mapped_column(String(2), nullable=True)
     remote_policy: Mapped[str] = mapped_column(Text, nullable=False)
 
+    # Eligibility gates — the flagship signal family. min_years_experience is
+    # what the feed ranks and filters on (27.9% of postings state a number; only
+    # 17% of those are open to <=2 years).
+    min_years_experience: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    degree_required: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    french_required: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_new_grad_friendly: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_internship_or_coop: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    eligibility_evidence: Mapped[list[str]] = mapped_column(
+        ARRAY(String), nullable=False, default=list
+    )
+
     # Tri-state on purpose: NULL = the posting doesn't say, which is different
     # from FALSE = the posting says no.
     visa_sponsorship_available: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
@@ -181,8 +193,14 @@ class ListingComponent(Base):
         Index("ix_listing_components_raw_listing_id", "raw_listing_id"),
         Index("ix_listing_components_prompt_version", "prompt_version"),
         Index("ix_listing_components_skills_gin", "skills", postgresql_using="gin"),
-        # Feed queries filter on sponsorship; partial index keeps it small
-        # since most postings say nothing about visas.
+        # The feed's primary filter: "roles open to N years or fewer". Partial,
+        # since ~72% of postings state no number.
+        Index(
+            "ix_listing_components_min_years",
+            "min_years_experience",
+            postgresql_where=text("min_years_experience IS NOT NULL"),
+        ),
+        # Visa filtering is rare but cheap to index the same way.
         Index(
             "ix_listing_components_sponsorship",
             "visa_sponsorship_available",

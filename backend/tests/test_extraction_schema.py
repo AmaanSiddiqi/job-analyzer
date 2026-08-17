@@ -1,5 +1,5 @@
-"""JobComponents validation — especially the rules structured outputs can't
-enforce: visa flags need verbatim evidence, comp needs a currency."""
+"""JobComponents validation — especially the rules structured outputs cannot
+enforce: ranking-critical claims need verbatim evidence, comp needs a currency."""
 
 import pytest
 from pydantic import ValidationError
@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from app.extraction.schema import (
     Compensation,
     CompPeriod,
+    EligibilitySignals,
     JobComponents,
     RemotePolicy,
     Seniority,
@@ -123,3 +124,59 @@ class TestJobComponents:
         schema = JobComponents.model_json_schema()
         assert "title_raw" in schema["properties"]
         assert "visa" in schema["properties"]
+
+
+class TestEligibilitySignals:
+    def test_empty_is_valid(self):
+        e = EligibilitySignals()
+        assert e.any_gate_set is False
+        assert e.min_years_experience is None
+
+    def test_experience_claim_requires_evidence(self):
+        """min_years_experience is what the feed ranks on — a fabricated "5+
+        years" wrongly excludes a user from a role they could have got."""
+        with pytest.raises(ValidationError, match="verbatim evidence"):
+            EligibilitySignals(min_years_experience=5)
+
+    def test_experience_with_evidence_accepted(self):
+        e = EligibilitySignals(
+            min_years_experience=5, evidence=["5+ years of professional experience"]
+        )
+        assert e.any_gate_set is True
+
+    def test_blank_evidence_does_not_satisfy_the_rule(self):
+        with pytest.raises(ValidationError, match="verbatim evidence"):
+            EligibilitySignals(min_years_experience=3, evidence=["  "])
+
+    def test_booleans_do_not_require_evidence(self):
+        """Lower stakes than the experience number, and requiring quotes for
+        every boolean would push the model to fabricate them."""
+        e = EligibilitySignals(is_new_grad_friendly=True, french_required=False)
+        assert e.any_gate_set is True
+
+    @pytest.mark.parametrize("years", [-1, 41])
+    def test_absurd_experience_values_rejected(self, years):
+        with pytest.raises(ValidationError):
+            EligibilitySignals(min_years_experience=years, evidence=["x"])
+
+    def test_zero_years_is_meaningful_not_falsy(self):
+        """0 must survive: "no experience required" is a real, useful signal and
+        a falsy-check would drop it."""
+        e = EligibilitySignals(min_years_experience=0, evidence=["No experience required"])
+        assert e.min_years_experience == 0
+        assert e.any_gate_set is True
+
+    def test_extra_fields_rejected(self):
+        with pytest.raises(ValidationError):
+            EligibilitySignals(vibes_required=True)  # type: ignore[call-arg]
+
+
+def test_job_components_carries_eligibility():
+    c = _minimal(
+        eligibility=EligibilitySignals(
+            min_years_experience=2, evidence=["2+ years experience"], is_new_grad_friendly=True
+        )
+    )
+    assert c.eligibility.min_years_experience == 2
+    elig_schema = JobComponents.model_json_schema()["$defs"]["EligibilitySignals"]
+    assert "min_years_experience" in elig_schema["properties"]

@@ -14,7 +14,13 @@ import httpx
 import pytest
 from anthropic.types import TextBlock
 
-from app.extraction.client import MAX_DESCRIPTION_CHARS, ExtractionFailed, build_request, extract_one
+from app.extraction.client import (
+    MAX_DESCRIPTION_CHARS,
+    ExtractionFailed,
+    build_request,
+    extract_one,
+)
+from app.extraction.prompts import PROMPT_VERSION
 from app.extraction.schema import JobComponents, Seniority
 from app.settings import Settings
 
@@ -103,7 +109,7 @@ class TestExtractOne:
         assert result.components.company_canonical == "Cohere"
         assert (result.input_tokens, result.output_tokens) == (5000, 800)
         assert result.attempts == 1
-        assert result.prompt_version == "v1"
+        assert result.prompt_version == PROMPT_VERSION
 
     async def test_retry_includes_the_error_text(self):
         """A blind retry would just re-ask the same question — the point is that

@@ -8,7 +8,7 @@ attributable.
 
 from taxonomy.config import load_taxonomy
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 
 _SYSTEM = """You extract structured data from job postings for a Canadian job-search product whose users are international students and new graduates. Accuracy about work authorization is the single most important thing you do: these users make application decisions based on it.
 
@@ -16,9 +16,11 @@ Rules:
 
 1. Extract only what the posting states. If a field is not stated, leave it null (or an empty list). Never infer, never fill from typical practice for that company or role.
 
+1b. Eligibility gates are the fields users act on most, so be exact about them. `min_years_experience` is the smallest number of years the posting requires: from "3-5 years" use 3, from "5+ years" use 5, from "minimum 7 years" use 7. If the posting states no number, leave it null — do NOT infer one from the title, because "Senior" in a title and the years in the body frequently disagree and the body is what the recruiter screens on. Quote the requirement verbatim in `eligibility.evidence`. Set `is_new_grad_friendly` or `is_internship_or_coop` only on explicit language ("new grads welcome", "co-op term", "0-2 years"). Set `french_required` true only where French or bilingualism is actually required, not where the posting merely happens to be bilingual.
+
 2. Compensation: only report figures the posting actually prints. No estimating from role or market. If no currency is stated alongside a number, report no compensation at all rather than guessing between CAD and USD.
 
-3. Visa signals are tri-state and each one needs proof:
+3. Visa signals are tri-state and each one needs proof. These are rare in Canadian postings (well under 1%) — that is expected, so null is nearly always the right answer, and you should not stretch to find a signal that is not there:
    - true  = the posting says it
    - false = the posting says the opposite
    - null  = the posting does not address it (this is the common case)

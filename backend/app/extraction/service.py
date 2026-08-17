@@ -9,7 +9,7 @@ never stop the batch; the cost cap is the only thing that halts a run.
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import anthropic
@@ -25,6 +25,9 @@ from .prompts import PROMPT_VERSION
 from .schema import CompPeriod, JobComponents
 
 log = logging.getLogger(__name__)
+
+# Aggregator sources deliver truncated snippets — see pending_listings().
+AGGREGATOR_SOURCES = ("adzuna", "jooble")
 
 # Hardcoded FX for comp_cad_annual_est (CLAUDE.md: hardcoded rates table).
 # Rough and deliberately so — the estimate exists for cross-currency sorting,
@@ -91,6 +94,7 @@ def _to_row(
 ) -> ListingComponent:
     comp = components.compensation
     visa = components.visa
+    elig = components.eligibility
     return ListingComponent(
         raw_listing_id=raw.id,
         prompt_version=PROMPT_VERSION,
@@ -123,6 +127,12 @@ def _to_row(
         visa_sponsorship_available=visa.sponsorship_available,
         visa_requires_existing_authorization=visa.requires_existing_authorization,
         visa_citizenship_or_pr_required=visa.citizenship_or_pr_required,
+        min_years_experience=elig.min_years_experience,
+        degree_required=elig.degree_required,
+        french_required=elig.french_required,
+        is_new_grad_friendly=elig.is_new_grad_friendly,
+        is_internship_or_coop=elig.is_internship_or_coop,
+        eligibility_evidence=[e for e in elig.evidence if e.strip()],
         visa_evidence=[e for e in visa.evidence if e.strip()],
         posted_at=_resolve_posted_at(components, raw),
         language=components.language,
@@ -130,24 +140,45 @@ def _to_row(
     )
 
 
-async def pending_listings(db: AsyncSession, limit: int) -> list[RawListing]:
-    """Listings with no extraction at the current prompt version, oldest first.
+async def pending_listings(
+    db: AsyncSession, limit: int, settings: Settings | None = None
+) -> list[RawListing]:
+    """Listings worth extracting, freshest first.
 
     This query *is* the resumability mechanism — nothing tracks progress
     separately, so a run that dies mid-way simply has fewer pending rows next
-    time.
+    time. It also carries the two standing cost rules from CLAUDE.md, because
+    the cheapest token is the one never sent:
+
+      * skip postings older than the staleness window — 26% of the corpus is
+        >90 days old and mostly filled, frozen or evergreen, so extracting it
+        is money spent on listings nobody should apply to;
+      * skip aggregator rows — Adzuna/Jooble give truncated snippets, which
+        make poor extraction input; they earn their keep on breadth and company
+        discovery instead.
+
+    Ordered newest-first (not oldest) so that when a run is capped, the budget
+    went to the listings users would actually see.
     """
+    settings = settings or get_settings()
     already_done = (
         select(ListingComponent.id)
         .where(ListingComponent.raw_listing_id == RawListing.id)
         .where(ListingComponent.prompt_version == PROMPT_VERSION)
     )
-    stmt = (
-        select(RawListing)
-        .where(~exists(already_done))
-        .order_by(RawListing.fetched_at.asc())
-        .limit(limit)
-    )
+    stmt = select(RawListing).where(~exists(already_done))
+
+    if settings.extraction_skip_aggregators:
+        stmt = stmt.where(RawListing.source_type.notin_(AGGREGATOR_SOURCES))
+    if settings.extraction_max_posting_age_days:
+        cutoff = datetime.now(UTC) - timedelta(days=settings.extraction_max_posting_age_days)
+        # posted_at NULL means the source gave no date — keep those rather than
+        # silently dropping a whole source's listings.
+        stmt = stmt.where(
+            (RawListing.posted_at.is_(None)) | (RawListing.posted_at >= cutoff)
+        )
+
+    stmt = stmt.order_by(RawListing.posted_at.desc().nullslast()).limit(limit)
     return list((await db.execute(stmt)).scalars().all())
 
 
@@ -163,7 +194,7 @@ async def run_extraction(
     stats = ExtractionRunStats(run_id=f"extract-{uuid.uuid4().hex[:12]}")
     batch_limit = limit or settings.extraction_batch_size
 
-    listings = await pending_listings(db, batch_limit)
+    listings = await pending_listings(db, batch_limit, settings)
     stats.considered = len(listings)
     if not listings:
         log.info("extraction: nothing pending at prompt %s", PROMPT_VERSION)

@@ -64,6 +64,12 @@ class Settings(BaseSettings):
     # low is enough for schema-constrained extraction and keeps the backfill
     # affordable; raise it if the eval shows visa-evidence recall suffering.
     extraction_effort: str = "low"
+    # Two standing cost rules (CLAUDE.md): the cheapest token is one never sent.
+    # 26% of the corpus is >90 days old and mostly filled/evergreen, and
+    # aggregator snippets are truncated so they extract poorly.
+    extraction_max_posting_age_days: int | None = 90
+    extraction_skip_aggregators: bool = True
+
     # Adaptive thinking is Sonnet 5's default and measurably doubles cost here
     # (~$0.032 vs ~$0.016 per listing on real gold-set token counts), so it
     # starts off: extraction is schema-constrained, which is where thinking

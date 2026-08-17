@@ -5,11 +5,12 @@ return a shape that fails validation. Extend only with a stated reason; every
 change needs a new prompt version and a re-run of the eval before any backfill.
 
 Design rules that matter more than the field list:
-  * Anything not stated in the posting is None, never a guess. Compensation
-    and visa flags especially — a wrong "sponsors visas" is worse for the user
-    than an honest "not stated".
-  * Every visa flag that isn't None must be backed by verbatim evidence from
-    the posting (enforced in code below, not just asked for in the prompt).
+  * Anything not stated in the posting is None, never a guess. Compensation and
+    eligibility especially — a wrong "5+ years required" wrongly excludes a user
+    from a role they could have got, which is the failure that costs them most.
+  * Claims that drive ranking (the experience requirement, any visa flag) must
+    be backed by verbatim evidence from the posting — enforced by validators
+    below, not merely requested in the prompt.
 """
 
 from datetime import date
@@ -80,8 +81,14 @@ class Compensation(BaseModel):
 
 
 class VisaSignals(BaseModel):
-    """The flagship feature. Tri-state by design: None means "the posting does
-    not say", which is different from False ("the posting says no")."""
+    """Work-authorization signals. Tri-state by design: None means "the posting
+    does not say", which is different from False ("the posting says no").
+
+    Demoted from flagship on measured evidence — these fire on under 1% of
+    Canadian postings (CLAUDE.md product thesis) — but kept because the cases
+    where citizenship or clearance genuinely gates a role are real, and three
+    nullable booleans cost nothing to carry.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -126,6 +133,85 @@ class VisaSignals(BaseModel):
     def _flags_need_evidence(self) -> "VisaSignals":
         if self.any_flag_set and not [e for e in self.evidence if e.strip()]:
             raise ValueError("visa flags set without verbatim evidence")
+        return self
+
+
+class EligibilitySignals(BaseModel):
+    """Gates that decide whether a candidate can realistically apply.
+
+    This is the flagship signal family (see CLAUDE.md product thesis): measured
+    over 1,400 real postings, experience requirements appear in 27.9% and only
+    17% of those are open to <=2 years, while visa signals fire on under 1%.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    min_years_experience: int | None = Field(
+        None,
+        ge=0,
+        le=40,
+        description=(
+            "Smallest number of years of experience the posting requires. From "
+            "'3-5 years' use 3; from '5+ years' use 5. None if no number is "
+            "stated — do not infer one from the title."
+        ),
+    )
+    degree_required: bool | None = Field(
+        None,
+        description=(
+            "True if a specific degree is stated as required, False if the "
+            "posting says a degree is not required or accepts equivalent "
+            "experience, None if it doesn't say."
+        ),
+    )
+    french_required: bool | None = Field(
+        None,
+        description=(
+            "True if French or bilingualism is required (common in Quebec and "
+            "federal roles). False if explicitly not needed, None if unstated."
+        ),
+    )
+    is_new_grad_friendly: bool | None = Field(
+        None,
+        description=(
+            "True only if the posting explicitly welcomes new graduates, "
+            "students, interns, or early-career candidates."
+        ),
+    )
+    is_internship_or_coop: bool | None = Field(
+        None, description="True if this is an internship, co-op or student position."
+    )
+    evidence: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Verbatim phrases from the posting supporting the fields above — "
+            "especially the experience requirement. Copy exactly; do not "
+            "paraphrase."
+        ),
+    )
+
+    @property
+    def any_gate_set(self) -> bool:
+        return any(
+            v is not None
+            for v in (
+                self.min_years_experience,
+                self.degree_required,
+                self.french_required,
+                self.is_new_grad_friendly,
+                self.is_internship_or_coop,
+            )
+        )
+
+    @model_validator(mode="after")
+    def _experience_claim_needs_evidence(self) -> "EligibilitySignals":
+        # Only the experience number is evidence-gated: it is the signal the
+        # product ranks on, and a fabricated "5+ years" would wrongly exclude a
+        # user from a role they could get. The booleans are lower-stakes.
+        if self.min_years_experience is not None and not [
+            e for e in self.evidence if e.strip()
+        ]:
+            raise ValueError("min_years_experience set without verbatim evidence")
         return self
 
 
@@ -184,6 +270,10 @@ class JobComponents(BaseModel):
     )
     remote_policy: RemotePolicy = Field(RemotePolicy.UNKNOWN)
 
+    eligibility: EligibilitySignals = Field(default_factory=EligibilitySignals)
+    # Kept because the ~1% of postings where citizenship or clearance genuinely
+    # gates a role still matter, but demoted from flagship on measured evidence
+    # (CLAUDE.md product thesis).
     visa: VisaSignals = Field(default_factory=VisaSignals)
 
     posted_at: date | None = Field(
