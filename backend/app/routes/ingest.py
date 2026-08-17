@@ -27,6 +27,7 @@ class SourceCountsOut(BaseModel):
     fetched: int
     kept: int
     filtered_location: int
+    duplicate_in_run: int
     new_raw: int
     new_postings: int
     failed_boards: list[str]
@@ -89,6 +90,7 @@ async def ingest_aggregators(
 class ProbeResponse(BaseModel):
     probed: int
     board_found: int
+    no_ca_roles: int
     no_board: int
 
 

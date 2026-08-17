@@ -11,6 +11,22 @@ from httpx import ASGITransport, AsyncClient
 
 from app.database import get_db
 from app.main import app
+from app.settings import Settings, get_settings
+
+
+@pytest.fixture(autouse=True)
+def isolate_settings(monkeypatch):
+    """Never read the developer's real .env during tests.
+
+    pydantic-settings loads .env at instantiation, so without this a local
+    file with real ADZUNA_*/JOOBLE_API_KEY values leaks into tests: results
+    become machine-dependent and real credentials appear in mocked request
+    URLs. Tests that need a setting use monkeypatch.setenv explicitly.
+    """
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 class _MockResult:

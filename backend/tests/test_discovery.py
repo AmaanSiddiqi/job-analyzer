@@ -75,18 +75,23 @@ async def test_record_suggestions_existing_name_not_counted_new():
     assert db.execute.await_count == 2
 
 
-@respx.mock
-async def test_probe_pending_finds_greenhouse_board():
-    row = SuggestedCompany(
-        company_name="Knak",
+def _pending(name: str) -> SuggestedCompany:
+    return SuggestedCompany(
+        company_name=name,
         occurrences=5,
         first_seen=datetime.now(UTC),
         last_seen=datetime.now(UTC),
         status="pending",
     )
+
+
+@respx.mock
+async def test_probe_pending_finds_board_with_ca_roles():
+    row = _pending("Knak")
     db = _db(rows=[row])
 
-    # slug guess "knak" hits greenhouse; every other probe URL 404s
+    # slug guess "knak" hits greenhouse (fixture jobs are in Ottawa, Canada);
+    # every other probe URL 404s
     respx.get("https://boards-api.greenhouse.io/v1/boards/knak/jobs?content=true").respond(
         json=json.loads((BOARD_FIXTURES / "greenhouse.json").read_text())
     )
@@ -94,28 +99,46 @@ async def test_probe_pending_finds_greenhouse_board():
 
     stats = await probe_pending(db)
 
-    assert stats == {"probed": 1, "board_found": 1, "no_board": 0}
+    assert stats == {"probed": 1, "board_found": 1, "no_ca_roles": 0, "no_board": 0}
     assert row.status == "board_found"
     assert row.board == "greenhouse"
     assert row.board_token == "knak"
     assert row.board_jobs == 2
+    assert row.ca_jobs == 2
     db.commit.assert_awaited_once()
 
 
 @respx.mock
-async def test_probe_pending_no_board():
-    row = SuggestedCompany(
-        company_name="Totally Unfindable Co",
-        occurrences=2,
-        first_seen=datetime.now(UTC),
-        last_seen=datetime.now(UTC),
-        status="pending",
+async def test_probe_pending_board_with_no_ca_roles_is_auto_rejected():
+    """The hive.co case: a board exists, but it's a different company with no
+    Canadian roles — must never reach the review queue."""
+    # "Hive Co" → slug guess "hive" (the trailing "Co" suffix is stripped)
+    row = _pending("Hive Co")
+    db = _db(rows=[row])
+    fixture = json.loads((BOARD_FIXTURES / "greenhouse.json").read_text())
+    for job in fixture["jobs"]:
+        job["location"] = {"name": "San Francisco, CA"}
+    respx.get("https://boards-api.greenhouse.io/v1/boards/hive/jobs?content=true").respond(
+        json=fixture
     )
+    respx.route().respond(404)
+
+    stats = await probe_pending(db)
+
+    assert stats == {"probed": 1, "board_found": 0, "no_ca_roles": 1, "no_board": 0}
+    assert row.status == "no_ca_roles"
+    assert row.board_jobs == 2
+    assert row.ca_jobs == 0
+
+
+@respx.mock
+async def test_probe_pending_no_board():
+    row = _pending("Totally Unfindable Co")
     db = _db(rows=[row])
     respx.route().respond(404)
 
     stats = await probe_pending(db)
 
-    assert stats == {"probed": 1, "board_found": 0, "no_board": 1}
+    assert stats == {"probed": 1, "board_found": 0, "no_ca_roles": 0, "no_board": 1}
     assert row.status == "no_board"
     assert row.probed_at is not None

@@ -182,13 +182,18 @@ class SuggestedCompany(Base):
     last_seen: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )
-    # 'pending' → probe → 'board_found' (with board/token/board_jobs filled)
-    # or 'no_board'; Amaan's review moves board_found → 'added' | 'rejected'.
+    # 'pending' → probe → 'board_found' (board/token/counts filled), 'no_board'
+    # (no public board), or 'no_ca_roles' (board found but zero Canadian roles —
+    # auto-rejected, never reaches review). Amaan's review then moves
+    # board_found → 'added' | 'rejected'.
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))
     probed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     board: Mapped[str | None] = mapped_column(Text, nullable=True)
     board_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     board_jobs: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Canadian-role count at probe time — the review queue's sort key. Raw
+    # occurrence count sorts toward big US job-spammers instead.
+    ca_jobs: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     __table_args__ = (
         Index("uq_suggested_companies_name_lower", text("lower(company_name)"), unique=True),

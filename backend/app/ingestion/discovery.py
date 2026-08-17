@@ -22,6 +22,7 @@ from sources.config import load_companies
 
 from ..models import SuggestedCompany
 from .boards import FETCHERS, USER_AGENT, BoardFetchError, FetchedListing
+from .service import looks_canadian
 
 log = logging.getLogger(__name__)
 
@@ -89,12 +90,13 @@ async def record_suggestions(db: AsyncSession, listings: list[FetchedListing]) -
     return new_names
 
 
-async def probe_pending(db: AsyncSession, limit: int = 40) -> dict[str, int]:
+async def probe_pending(db: AsyncSession, limit: int = 100) -> dict[str, int]:
     """Probe pending suggestions for public boards; record what we find.
 
-    Reuses the board fetchers, so a hit comes with real listings — job count
-    is recorded and the fetched payload is thrown away (ingestion only reads
-    reviewed companies.yaml entries).
+    Reuses the board fetchers, so a hit comes with real listings — both the
+    total and the Canadian-role count are recorded (the latter is the review
+    queue's sort key), and the payload is thrown away. A board with zero
+    Canadian roles is auto-rejected as 'no_ca_roles' and never reaches review.
     """
     rows = (
         (
@@ -109,10 +111,10 @@ async def probe_pending(db: AsyncSession, limit: int = 40) -> dict[str, int]:
         .all()
     )
     sem = asyncio.Semaphore(_PROBE_CONCURRENCY)
-    found = no_board = 0
+    found = no_board = no_ca_roles = 0
 
     async def probe(row: SuggestedCompany) -> None:
-        nonlocal found, no_board
+        nonlocal found, no_board, no_ca_roles
         async with sem, httpx.AsyncClient(
             headers={"User-Agent": USER_AGENT}, timeout=15
         ) as client:
@@ -122,12 +124,21 @@ async def probe_pending(db: AsyncSession, limit: int = 40) -> dict[str, int]:
                         listings = await fetcher(client, token, row.company_name)
                     except BoardFetchError:
                         continue
-                    row.status = "board_found"
+                    ca_jobs = sum(1 for listing in listings if looks_canadian(listing.location))
                     row.board = board
                     row.board_token = token
                     row.board_jobs = len(listings)
+                    row.ca_jobs = ca_jobs
                     row.probed_at = datetime.now(UTC)
-                    found += 1
+                    if ca_jobs:
+                        row.status = "board_found"
+                        found += 1
+                    else:
+                        # Board exists but hires nowhere we care about — or the
+                        # slug matched a different company entirely. Either way
+                        # it isn't worth review time.
+                        row.status = "no_ca_roles"
+                        no_ca_roles += 1
                     return
         row.status = "no_board"
         row.probed_at = datetime.now(UTC)
@@ -135,18 +146,33 @@ async def probe_pending(db: AsyncSession, limit: int = 40) -> dict[str, int]:
 
     await asyncio.gather(*[probe(r) for r in rows])
     await db.commit()
-    log.info("discovery probe: %d found, %d no_board of %d pending", found, no_board, len(rows))
-    return {"probed": len(rows), "board_found": found, "no_board": no_board}
+    log.info(
+        "discovery probe: %d with CA roles, %d board-but-no-CA, %d no board (of %d pending)",
+        found, no_ca_roles, no_board, len(rows),
+    )
+    return {
+        "probed": len(rows),
+        "board_found": found,
+        "no_ca_roles": no_ca_roles,
+        "no_board": no_board,
+    }
 
 
 async def render_yaml_suggestions(db: AsyncSession) -> str:
-    """Ready-to-paste companies.yaml entries for reviewed promotion."""
+    """Ready-to-paste companies.yaml entries, most Canada-relevant first.
+
+    Sorted by Canadian-role count, not raw occurrences: the latter ranks by how
+    aggressively a company advertises, which favours large US employers.
+    """
     rows = (
         (
             await db.execute(
                 select(SuggestedCompany)
                 .where(SuggestedCompany.status == "board_found")
-                .order_by(SuggestedCompany.occurrences.desc())
+                .order_by(
+                    SuggestedCompany.ca_jobs.desc().nullslast(),
+                    SuggestedCompany.occurrences.desc(),
+                )
             )
         )
         .scalars()
@@ -154,12 +180,17 @@ async def render_yaml_suggestions(db: AsyncSession) -> str:
     )
     blocks = []
     for r in rows:
+        ca_share = (
+            f"{r.ca_jobs}/{r.board_jobs} Canadian"
+            if r.board_jobs
+            else f"{r.ca_jobs} Canadian"
+        )
         blocks.append(
             f'  - name: "{r.company_name}"\n'
             f'    hq: "TODO — verify"\n'
             f"    board: {r.board}\n"
             f"    token: {r.board_token}\n"
-            f"    # discovered via aggregators: seen {r.occurrences}x, "
-            f"{r.board_jobs} open jobs at probe time\n"
+            f"    # discovered via aggregators: seen {r.occurrences}x; board has "
+            f"{ca_share} roles at probe time — VERIFY this is the right company\n"
         )
     return "".join(blocks)

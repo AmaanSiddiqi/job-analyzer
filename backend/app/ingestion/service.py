@@ -37,7 +37,9 @@ _CITIES = (
     "edmonton", "waterloo", "kitchener", "mississauga", "victoria", "winnipeg",
     "saskatoon", "halifax", "hamilton", "burnaby", "oakville", "fredericton",
     "moncton", "regina", "london, on", "guelph", "burlington, on",
-    "st. john's", "quebec city",
+    "st. john's", "quebec city", "pointe claire", "pointe-claire", "laval",
+    "markham", "brampton", "richmond hill", "mississauga", "vaughan",
+    "gatineau", "sherbrooke", "kelowna", "windsor, on", "kanata", "longueuil",
 )
 # ", ON" / "(BC)" style province codes — word-bounded so "London" ≠ "LON".
 _PROVINCE_CODE = re.compile(
@@ -53,6 +55,9 @@ _FOREIGN = (
     "serbia", "sweden", "switzerland", "luxembourg", "india", "australia",
     "new zealand", "mexico", "brazil", "argentina", "colombia", "chile",
     "japan", "korea", "singapore", "china", "israel", "uae", "dubai", "qatar",
+    "taiwan", "taipei", "saudi", "ksa", "nairobi", "kenya", "nigeria", "egypt",
+    "philippines", "manila", "vietnam", "thailand", "indonesia", "malaysia",
+    "pittsburgh", "cyprus", "hamburg", "lyon", "auckland", "glasgow",
     "new york", "san francisco", "boston", "austin", "seattle", "chicago",
     "denver", "los angeles", "washington", "phoenix", "dallas", "atlanta",
     "miami", "nashville", "portland", "salt lake", "san diego", "houston",
@@ -67,10 +72,29 @@ _FOREIGN = (
 )
 # "US"/"USA"/"U.S." need word bounds — a substring match would hit "AUStralia".
 _US_RE = re.compile(r"\bu\.?s\.?a?\.?\b", re.IGNORECASE)
+# "Pittsburgh, PA" / "Lenexa, KS" — US state codes, none of which collide with
+# a Canadian province code (and the province check runs first regardless).
+_US_STATE_CODE = re.compile(
+    r"(?:^|[\s,(])(al|ak|az|ar|ca|co|ct|de|fl|ga|hi|id|il|in|ia|ks|ky|la|me|md|ma|mi|mn|ms|mo"
+    r"|mt|ne|nv|nh|nj|nm|ny|nc|nd|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|vt|va|wa|wv|wi|wy|dc)"
+    r"(?:$|[\s,).|])",
+    re.IGNORECASE,
+)
+
+
+# Regions that include Canada — a remote role scoped to these is in scope.
+_CA_INCLUSIVE = ("north america", "americas", "worldwide", "global", "anywhere")
+# Tokens that only describe work arrangement, never a place.
+_ARRANGEMENT = ("remote", "hybrid", "on-site", "onsite", "in-office", "flexible")
 
 
 def _segment_kind(segment: str) -> str:
-    """Classify one location segment: 'ca' | 'foreign' | 'other'.
+    """Classify one location segment.
+
+    Returns 'ca' (Canadian or Canada-inclusive), 'foreign' (a recognized
+    non-Canadian place, or remote *scoped* to an unrecognized place),
+    'arrangement' (only says how you work — "Remote", "Hybrid"), or 'unknown'
+    (an unrecognized place name with no remote qualifier).
 
     Strong Canadian signals (the word Canada, full province names, word-bounded
     province codes) are checked before the foreign list so "London, ON" wins
@@ -82,29 +106,40 @@ def _segment_kind(segment: str) -> str:
         return "ca"
     if _PROVINCE_CODE.search(segment):
         return "ca"
-    if any(f in seg for f in _FOREIGN) or _US_RE.search(seg):
+    if any(r in seg for r in _CA_INCLUSIVE):
+        return "ca"
+    if any(f in seg for f in _FOREIGN) or _US_RE.search(seg) or _US_STATE_CODE.search(segment):
         return "foreign"
     if any(c in seg for c in _CITIES):
         return "ca"
-    return "other"
+
+    residue = seg
+    for word in _ARRANGEMENT:
+        residue = residue.replace(word, " ")
+    has_place = bool(re.sub(r"[^a-z]", "", residue))
+    if has_place:
+        # "Remote Saudi Arabia" / "Remote, KSA": naming a place next to "remote"
+        # scopes the role there, so it's foreign even if the country isn't
+        # listed. Without a remote qualifier it's just a place we don't
+        # recognize (a small Canadian town, "TBD") — lean keep.
+        return "foreign" if seg != residue else "unknown"
+    return "arrangement"
 
 
 def looks_canadian(location: str | None) -> bool:
     """Keep listings with any Canadian location segment; drop ones whose only
-    named places are foreign (a trailing "Remote" tag doesn't rescue
-    "Amsterdam | Remote"); keep unknowns and genuinely bare remote. Wrong-keeps
-    are cheap (staleness ages them out); wrong-drops silently lose relevant
-    jobs — so unknowns lean keep."""
+    named places are foreign. Wrong-keeps are cheap (staleness ages them out);
+    wrong-drops silently lose relevant jobs — so unknowns lean keep."""
     if not location:
         return True
-    kinds = {
-        _segment_kind(seg)
-        for seg in re.split(r"[|;]", location)
-        if seg.strip() and seg.strip().lower() not in ("remote", "hybrid", "on-site", "onsite")
-    }
+    kinds = {_segment_kind(seg) for seg in re.split(r"[|;]", location) if seg.strip()}
     if "ca" in kinds:
         return True
-    return "foreign" not in kinds
+    if "foreign" in kinds:
+        return False
+    # "Hamburg | Remote": an unrecognized place beside a remote tag is a role
+    # scoped to that place, same as the single-segment case above.
+    return not ("arrangement" in kinds and "unknown" in kinds)
 
 
 def content_hash(title: str, company: str, location: str | None, description: str) -> str:
@@ -120,6 +155,9 @@ class SourceCounts:
     fetched: int = 0
     kept: int = 0
     filtered_location: int = 0
+    # Same source_url seen twice in one run (aggregator keywords overlap) —
+    # skipped before the location filter, so fetched != kept + filtered without it.
+    duplicate_in_run: int = 0
     new_raw: int = 0
     new_postings: int = 0
     failed_boards: list[str] = field(default_factory=list)
@@ -279,12 +317,13 @@ async def run_aggregator_ingestion(db: AsyncSession) -> dict[str, SourceCounts |
 
     seen_urls: set[str] = set()
     for listing in all_listings:
+        per_source = counts[listing.source_type]
         # Same URL appears under multiple keywords — first hit wins this run;
         # cross-run idempotency is the DB constraint's job.
         if listing.source_url in seen_urls:
+            per_source.duplicate_in_run += 1
             continue
         seen_urls.add(listing.source_url)
-        per_source = counts[listing.source_type]
         if settings.board_canada_only and not looks_canadian(listing.location):
             per_source.filtered_location += 1
             continue
@@ -300,8 +339,9 @@ async def run_aggregator_ingestion(db: AsyncSession) -> dict[str, SourceCounts |
     await db.commit()
     for source, c in counts.items():
         log.info(
-            "aggregator %s: fetched=%d kept=%d filtered=%d new_raw=%d failed_keywords=%s",
-            source, c.fetched, c.kept, c.filtered_location, c.new_raw, c.failed_boards or "none",
+            "aggregator %s: fetched=%d kept=%d filtered=%d dup_in_run=%d new_raw=%d failed_keywords=%s",
+            source, c.fetched, c.kept, c.filtered_location, c.duplicate_in_run, c.new_raw,
+            c.failed_boards or "none",
         )
     log.info("company discovery: %d new suggestions", new_suggestions)
     return {**counts, "new_company_suggestions": new_suggestions}

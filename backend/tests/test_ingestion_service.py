@@ -64,10 +64,50 @@ class TestLooksCanadian:
             "Cambridge, MA | Massachusetts",
             "Remote in the US | Remote",
             "USA, Remote",
+            # qualified remote: naming a place scopes the role there, even when
+            # the country isn't in the foreign list
+            "Remote Saudi Arabia",
+            "Remote, KSA",
+            "Remote - Nairobi",
+            # unrecognized place beside a remote tag = scoped there
+            "Hamburg | Remote",
+            "Manila | Remote",
+            # US state codes
+            "Pittsburgh, PA",
+            "Lenexa, KS",
+            "New Castle, CO",
+            "新北市, New Taipei City, Taiwan",
         ],
     )
     def test_drops(self, location):
         assert not looks_canadian(location)
+
+    @pytest.mark.parametrize(
+        "location",
+        [
+            # Canadian places outside the city list must not be dropped by the
+            # unrecognized-place rule (no remote qualifier → lean keep)
+            "Pointe Claire",
+            "Laval",
+            "Angus, ON",
+            "TBD",
+            "Grocery Ont-East",
+        ],
+    )
+    def test_unrecognized_place_without_remote_leans_keep(self, location):
+        assert looks_canadian(location)
+
+    @pytest.mark.parametrize(
+        "location",
+        [
+            "Remote",  # unqualified remote stays unknown → keep
+            "Remote - Hybrid",
+            "Remote, North America",  # region includes Canada
+            "Americas | Remote",
+        ],
+    )
+    def test_unqualified_or_ca_inclusive_remote_keeps(self, location):
+        assert looks_canadian(location)
 
     def test_us_word_boundary_does_not_hit_australia(self):
         # "AUStralia" contains "us" — must be caught by the country name,
