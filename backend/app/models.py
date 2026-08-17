@@ -4,7 +4,9 @@ from typing import Any
 from sqlalchemy import (
     ARRAY,
     BigInteger,
+    Boolean,
     DateTime,
+    ForeignKey,
     Index,
     Integer,
     Numeric,
@@ -104,6 +106,106 @@ class RawListing(Base):
         Index("ix_raw_listings_fetched_at", text("fetched_at DESC")),
         Index("ix_raw_listings_source_type", "source_type"),
         Index("ix_raw_listings_content_hash", "content_hash"),
+    )
+
+
+class ListingComponent(Base):
+    """Structured extraction output for one raw listing at one prompt version.
+
+    Unique on (raw_listing_id, prompt_version) so re-extracting with a new
+    prompt adds a row rather than destroying the old one — that's what makes a
+    prompt regression attributable and reversible.
+    """
+
+    __tablename__ = "listing_components"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    raw_listing_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("raw_listings.id", ondelete="CASCADE"), nullable=False
+    )
+    prompt_version: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    extracted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+    title_raw: Mapped[str] = mapped_column(Text, nullable=False)
+    title_normalized: Mapped[str] = mapped_column(Text, nullable=False)
+    seniority: Mapped[str] = mapped_column(Text, nullable=False)
+    company_raw: Mapped[str] = mapped_column(Text, nullable=False)
+    company_canonical: Mapped[str] = mapped_column(Text, nullable=False)
+
+    skills: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    skills_unmapped: Mapped[list[str]] = mapped_column(
+        ARRAY(String), nullable=False, default=list
+    )
+    required_quals: Mapped[list[str]] = mapped_column(
+        ARRAY(String), nullable=False, default=list
+    )
+    preferred_quals: Mapped[list[str]] = mapped_column(
+        ARRAY(String), nullable=False, default=list
+    )
+
+    comp_min: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    comp_max: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    comp_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    comp_period: Mapped[str | None] = mapped_column(Text, nullable=True)
+    comp_is_estimated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Derived for cross-currency comparison; original figures above are never
+    # overwritten (CLAUDE.md: preserve original currency).
+    comp_cad_annual_est: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+
+    location_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
+    city: Mapped[str | None] = mapped_column(Text, nullable=True)
+    region: Mapped[str | None] = mapped_column(Text, nullable=True)
+    country: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    remote_policy: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Eligibility gates — the flagship signal family. min_years_experience is
+    # what the feed ranks and filters on (27.9% of postings state a number; only
+    # 17% of those are open to <=2 years).
+    min_years_experience: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    degree_required: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    french_required: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_new_grad_friendly: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_internship_or_coop: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    eligibility_evidence: Mapped[list[str]] = mapped_column(
+        ARRAY(String), nullable=False, default=list
+    )
+
+    # Tri-state on purpose: NULL = the posting doesn't say, which is different
+    # from FALSE = the posting says no.
+    visa_sponsorship_available: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    visa_requires_existing_authorization: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True
+    )
+    visa_citizenship_or_pr_required: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    visa_evidence: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    language: Mapped[str] = mapped_column(String(8), nullable=False, default="en")
+    extraction_confidence: Mapped[float] = mapped_column(Numeric(4, 3), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "raw_listing_id", "prompt_version", name="uq_listing_components_listing_prompt"
+        ),
+        Index("ix_listing_components_raw_listing_id", "raw_listing_id"),
+        Index("ix_listing_components_prompt_version", "prompt_version"),
+        Index("ix_listing_components_skills_gin", "skills", postgresql_using="gin"),
+        # The feed's primary filter: "roles open to N years or fewer". Partial,
+        # since ~72% of postings state no number.
+        Index(
+            "ix_listing_components_min_years",
+            "min_years_experience",
+            postgresql_where=text("min_years_experience IS NOT NULL"),
+        ),
+        # Visa filtering is rare but cheap to index the same way.
+        Index(
+            "ix_listing_components_sponsorship",
+            "visa_sponsorship_available",
+            postgresql_where=text("visa_sponsorship_available IS NOT NULL"),
+        ),
     )
 
 

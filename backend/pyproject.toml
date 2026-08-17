@@ -18,6 +18,7 @@ dependencies = [
     "slowapi>=0.1.10",
     "pyyaml>=6.0.2",
     "pydantic-settings>=2.5",
+    "anthropic>=0.116.0",
 ]
 
 [project.optional-dependencies]
@@ -29,13 +30,10 @@ dev = [
     "ruff>=0.16.2",
     "mypy>=2.3.0",
 ]
-# Only needed to run eval/scripts/draft_label.py (calls the Anthropic API as
-# the eval harness's annotator model). Not a runtime app dependency — kept
-# out of the main dependency list and out of `dev` so CI/prod installs don't
-# need an API key.
-eval = [
-    "anthropic>=0.40.0",
-]
+# The eval harness needs no extra packages now that `anthropic` is a runtime
+# dependency (the extraction pipeline uses it). Kept as an empty extra so
+# `uv sync --extra eval` in docs and CI keeps working.
+eval = []
 
 [build-system]
 requires = ["setuptools>=61.0"]
@@ -58,6 +56,7 @@ extend-exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+per-file-ignores = { "app/extraction/prompts.py" = ["E501"] }
 ignore = [
     "E402",  # main.py configures logging before other imports on purpose;
              # alembic/env.py must load_dotenv() before importing app.database
