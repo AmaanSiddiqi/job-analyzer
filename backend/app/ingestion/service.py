@@ -125,7 +125,12 @@ class SourceCounts:
     failed_boards: list[str] = field(default_factory=list)
 
 
-async def _store(db: AsyncSession, listing: FetchedListing, counts: SourceCounts) -> None:
+async def store_listing(db: AsyncSession, listing: FetchedListing, counts: SourceCounts) -> None:
+    """Dual-write one listing (raw_listings + job_postings), idempotently.
+
+    Shared by board and aggregator ingestion — the writes are identical, only
+    the fetch side differs.
+    """
     digest = content_hash(listing.title, listing.company, listing.location, listing.description)
 
     raw_stmt = (
@@ -207,7 +212,7 @@ async def run_board_ingestion(
                 per_source.filtered_location += 1
                 continue
             per_source.kept += 1
-            await _store(db, listing, per_source)
+            await store_listing(db, listing, per_source)
 
     await db.commit()
     for board, c in counts.items():
@@ -217,3 +222,86 @@ async def run_board_ingestion(
             c.failed_boards or "none",
         )
     return counts
+
+
+async def _store_raw_only(db: AsyncSession, listing: FetchedListing, counts: SourceCounts) -> None:
+    """raw_listings write only — aggregator default until P2 canonical dedup
+    (see Settings.aggregators_to_postings for why job_postings is skipped)."""
+    digest = content_hash(listing.title, listing.company, listing.location, listing.description)
+    stmt = (
+        pg_insert(RawListing)
+        .values(
+            source_type=listing.source_type,
+            source_name=listing.source_name,
+            external_id=listing.external_id,
+            source_url=listing.source_url,
+            content_hash=digest,
+            title=listing.title,
+            company=listing.company,
+            location=listing.location,
+            description=listing.description,
+            posted_at=listing.posted_at,
+            payload=listing.payload,
+        )
+        .on_conflict_do_nothing(constraint="uq_raw_listings_source_content")
+    )
+    result = await db.execute(stmt)
+    if result.rowcount:  # type: ignore[attr-defined]
+        counts.new_raw += 1
+
+
+async def run_aggregator_ingestion(db: AsyncSession) -> dict[str, SourceCounts | int]:
+    """Fetch Adzuna + Jooble for every keyword, store, and mine company
+    suggestions. Returns per-source counts plus discovery stats."""
+    from .aggregators import KEYWORDS, fetch_adzuna, fetch_jooble
+    from .discovery import record_suggestions
+
+    settings = get_settings()
+    counts = {"adzuna": SourceCounts(), "jooble": SourceCounts()}
+    all_listings: list[FetchedListing] = []
+
+    async with httpx.AsyncClient(headers={"User-Agent": USER_AGENT}, timeout=30) as client:
+        for keyword in KEYWORDS:
+            for source, fetcher, configured in (
+                ("adzuna", fetch_adzuna, bool(settings.adzuna_app_id and settings.adzuna_app_key)),
+                ("jooble", fetch_jooble, bool(settings.jooble_api_key)),
+            ):
+                if not configured:
+                    continue
+                try:
+                    listings = await fetcher(client, settings, keyword)
+                except BoardFetchError as e:
+                    log.warning("aggregator fetch failed: %s", e)
+                    counts[source].failed_boards.append(keyword)
+                    continue
+                counts[source].fetched += len(listings)
+                all_listings.extend(listings)
+
+    seen_urls: set[str] = set()
+    for listing in all_listings:
+        # Same URL appears under multiple keywords — first hit wins this run;
+        # cross-run idempotency is the DB constraint's job.
+        if listing.source_url in seen_urls:
+            continue
+        seen_urls.add(listing.source_url)
+        per_source = counts[listing.source_type]
+        if settings.board_canada_only and not looks_canadian(listing.location):
+            per_source.filtered_location += 1
+            continue
+        per_source.kept += 1
+        if settings.aggregators_to_postings:
+            await store_listing(db, listing, per_source)
+        else:
+            await _store_raw_only(db, listing, per_source)
+
+    new_suggestions = await record_suggestions(
+        db, [listing for listing in all_listings if listing.source_url in seen_urls]
+    )
+    await db.commit()
+    for source, c in counts.items():
+        log.info(
+            "aggregator %s: fetched=%d kept=%d filtered=%d new_raw=%d failed_keywords=%s",
+            source, c.fetched, c.kept, c.filtered_location, c.new_raw, c.failed_boards or "none",
+        )
+    log.info("company discovery: %d new suggestions", new_suggestions)
+    return {**counts, "new_company_suggestions": new_suggestions}

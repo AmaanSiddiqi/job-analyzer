@@ -1,0 +1,29 @@
+{
+ "totalCount": 2,
+ "jobs": [
+  {
+   "id": 987654321,
+   "title": "Machine Learning Engineer",
+   "location": "Montreal, QC",
+   "snippet": "Build ML pipelines with <b>PyTorch</b> and Kubernetes. Hybrid role.&nbsp;Sponsorship not available.",
+   "salary": "",
+   "source": "employer-site.com",
+   "type": "Full-time",
+   "link": "https://jooble.org/desc/987654321",
+   "company": "Laurentide AI",
+   "updated": "2026-08-15T00:00:00.0000000"
+  },
+  {
+   "id": 987654322,
+   "title": "DevOps Engineer",
+   "location": "Vancouver, BC",
+   "snippet": "Terraform, AWS, CI/CD.",
+   "salary": "",
+   "source": "employer-site.com",
+   "type": "Full-time",
+   "link": "https://jooble.org/desc/987654322",
+   "company": "Pacific Stack Systems",
+   "updated": "2026-08-16T00:00:00.0000000"
+  }
+ ]
+}

@@ -1,0 +1,33 @@
+{
+ "results": [
+  {
+   "id": "5011223344",
+   "title": "Senior <strong>Software Engineer</strong>",
+   "description": "We are looking for a Senior Software Engineer to join our Toronto team. You will work with Python, AWS and Postgres. Visa sponsorship available for the right candidate …",
+   "company": {"display_name": "Maple Analytics"},
+   "location": {"display_name": "Toronto, Ontario", "area": ["Canada", "Ontario", "Toronto"]},
+   "redirect_url": "https://www.adzuna.ca/land/ad/5011223344",
+   "created": "2026-08-14T09:30:00Z",
+   "salary_min": 120000,
+   "salary_max": 150000,
+   "category": {"label": "IT Jobs", "tag": "it-jobs"}
+  },
+  {
+   "id": "5011223355",
+   "title": "Data Engineer",
+   "description": "Data Engineer role. dbt, Airflow, Snowflake. Must be authorized to work in Canada …",
+   "company": {"display_name": "Prairie Grid Software"},
+   "location": {"display_name": "Calgary, Alberta"},
+   "redirect_url": "https://www.adzuna.ca/land/ad/5011223355",
+   "created": "2026-08-15T12:00:00Z"
+  },
+  {
+   "id": "5011223366",
+   "title": "Broken listing with no company",
+   "description": "should be skipped",
+   "location": {"display_name": "Ottawa, Ontario"},
+   "redirect_url": "https://www.adzuna.ca/land/ad/5011223366"
+  }
+ ],
+ "count": 3
+}

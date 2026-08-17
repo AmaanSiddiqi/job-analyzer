@@ -159,6 +159,43 @@ class LlmUsage(Base):
     )
 
 
+class SuggestedCompany(Base):
+    """Companies seen in aggregator (Adzuna/Jooble) data that aren't in
+    sources/companies.yaml — the discovery queue that grows the board list.
+
+    A probe job checks whether each has a public Greenhouse/Lever/Ashby board
+    (identity-verified); Amaan reviews verified hits and promotes them to
+    companies.yaml. Never auto-added: wrong-company slug collisions are the
+    failure mode the human review exists to catch.
+    """
+
+    __tablename__ = "suggested_companies"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    # Display name as seen in aggregator data; unique case-insensitively via
+    # the expression index below.
+    company_name: Mapped[str] = mapped_column(Text, nullable=False)
+    occurrences: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    first_seen: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    last_seen: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    # 'pending' → probe → 'board_found' (with board/token/board_jobs filled)
+    # or 'no_board'; Amaan's review moves board_found → 'added' | 'rejected'.
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))
+    probed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    board: Mapped[str | None] = mapped_column(Text, nullable=True)
+    board_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    board_jobs: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    __table_args__ = (
+        Index("uq_suggested_companies_name_lower", text("lower(company_name)"), unique=True),
+        Index("ix_suggested_companies_status", "status"),
+    )
+
+
 class UnmappedSkill(Base):
     """Extracted skills with no taxonomy match, accumulated for weekly review."""
 
