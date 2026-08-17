@@ -6,13 +6,13 @@ Mirrors the /scrape route conventions: X-Admin-Key auth, per-IP rate limit,
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import require_admin_key
-from ..database import get_db
+from ..database import AsyncSessionLocal, get_db
 from ..ingestion.discovery import probe_pending, render_yaml_suggestions
 from ..ingestion.service import run_aggregator_ingestion, run_board_ingestion
 from ..rate_limit import limiter
@@ -52,6 +52,44 @@ async def ingest_boards(request: Request, db: AsyncSession = Depends(get_db)) ->
     counts = await run_board_ingestion(db)
     return IngestResponse(
         sources={board: SourceCountsOut(**vars(c)) for board, c in counts.items()}
+    )
+
+
+class IngestStarted(BaseModel):
+    status: str
+    detail: str
+
+
+async def _run_board_ingestion_bg() -> None:
+    try:
+        async with AsyncSessionLocal() as db:
+            counts = await run_board_ingestion(db)
+        log.info("background board ingestion done: %s", {k: vars(v) for k, v in counts.items()})
+    except Exception:
+        log.exception("background board ingestion failed")
+
+
+@router.post(
+    "/boards/async", response_model=IngestStarted, dependencies=[Depends(require_admin_key)]
+)
+@limiter.limit("2/minute")
+async def ingest_boards_async(
+    request: Request, background_tasks: BackgroundTasks
+) -> IngestStarted:
+    """Start a board-ingestion pass in the background and return immediately.
+
+    A full pass takes ~2 minutes over 69 boards — too long for a browser
+    request, so the dashboard uses this and polls /trends/sources for progress.
+    """
+    if not get_settings().enable_board_ingestion:
+        raise HTTPException(
+            status_code=503,
+            detail="Board ingestion is disabled. Set ENABLE_BOARD_INGESTION=true.",
+        )
+    background_tasks.add_task(_run_board_ingestion_bg)
+    return IngestStarted(
+        status="started",
+        detail="Ingesting all configured boards — takes ~2 minutes. Refresh to see new postings.",
     )
 
 

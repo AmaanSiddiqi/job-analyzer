@@ -19,8 +19,26 @@ class JobPostingCreate(JobPostingBase):
 class JobPostingOut(JobPostingBase):
     id: int
     date_scraped: datetime
+    # Which pipeline produced the row: greenhouse | lever | ashby | adzuna |
+    # jooble | linkedin (legacy). Additive — existing clients ignore it.
+    source_type: str = "linkedin"
 
     model_config = {"from_attributes": True}
+
+
+class SourceCount(BaseModel):
+    source_type: str
+    count: int
+
+
+class SourceTrendsResponse(BaseModel):
+    """Per-source posting counts — the P1 DoD's 'per-source counts visible'."""
+
+    total_jobs: int
+    sources: list[SourceCount]
+    # Same breakdown restricted to the last 7 days, so a stalled source is
+    # visible even when its historical total is large.
+    recent_sources: list[SourceCount]
 
 
 class SkillTrend(BaseModel):
