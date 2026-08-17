@@ -12,7 +12,7 @@ from slowapi.errors import RateLimitExceeded
 
 from . import scheduler
 from .rate_limit import limiter
-from .routes import admin, ingest, jobs, scrape, trends
+from .routes import admin, extract, ingest, jobs, scrape, trends
 
 load_dotenv()
 
@@ -50,6 +50,7 @@ app.include_router(trends.router)
 app.include_router(scrape.router)
 app.include_router(admin.router)
 app.include_router(ingest.router)
+app.include_router(extract.router)
 
 
 @app.get("/health")

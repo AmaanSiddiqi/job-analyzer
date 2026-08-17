@@ -47,6 +47,30 @@ class Settings(BaseSettings):
     # Jooble pages fetched per keyword.
     jooble_pages_per_keyword: int = 2
 
+    # --- LLM extraction (P1 flagship) ---
+
+    # Feature flag; also requires ANTHROPIC_API_KEY. Default off so a deploy
+    # never starts spending on its own.
+    enable_llm_extraction: bool = False
+
+    # Sonnet 5 keeps Opus 5 free to be the *stronger, different* eval annotator
+    # CLAUDE.md requires — same-model labeling would make the eval circular.
+    extraction_model: str = "claude-sonnet-5"
+    # Hard abort once a run's ledgered spend reaches this (CLAUDE.md default).
+    extraction_cost_cap_usd: float = 15.0
+    # Listings per run when no explicit limit is passed.
+    extraction_batch_size: int = 50
+    extraction_max_tokens: int = 4096
+    # low is enough for schema-constrained extraction and keeps the backfill
+    # affordable; raise it if the eval shows visa-evidence recall suffering.
+    extraction_effort: str = "low"
+    # Adaptive thinking is Sonnet 5's default and measurably doubles cost here
+    # (~$0.032 vs ~$0.016 per listing on real gold-set token counts), so it
+    # starts off: extraction is schema-constrained, which is where thinking
+    # buys least. The eval scores both settings — turn it on if visa-evidence
+    # recall actually needs it, rather than paying 2x on the assumption.
+    extraction_thinking: bool = False
+
     # Whether aggregator listings also upsert into job_postings (the live
     # dashboard table). Off by default: the same real job often appears on
     # both a company board and an aggregator with different URLs, which

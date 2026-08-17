@@ -1,0 +1,125 @@
+"""JobComponents validation — especially the rules structured outputs can't
+enforce: visa flags need verbatim evidence, comp needs a currency."""
+
+import pytest
+from pydantic import ValidationError
+
+from app.extraction.schema import (
+    Compensation,
+    CompPeriod,
+    JobComponents,
+    RemotePolicy,
+    Seniority,
+    VisaSignals,
+)
+
+
+def _minimal(**overrides):
+    base = {
+        "title_raw": "Software Engineer",
+        "title_normalized": "Software Engineer",
+        "company_raw": "Acme Inc.",
+        "company_canonical": "Acme",
+    }
+    base.update(overrides)
+    return JobComponents(**base)
+
+
+class TestVisaSignals:
+    def test_all_null_needs_no_evidence(self):
+        """The common case: the posting says nothing about work authorization."""
+        visa = VisaSignals()
+        assert visa.any_flag_set is False
+        assert visa.evidence == []
+
+    @pytest.mark.parametrize(
+        "flag",
+        [
+            "sponsorship_available",
+            "requires_existing_authorization",
+            "citizenship_or_pr_required",
+        ],
+    )
+    def test_any_flag_without_evidence_is_rejected(self, flag):
+        with pytest.raises(ValidationError, match="verbatim evidence"):
+            VisaSignals(**{flag: True})
+
+    def test_false_also_requires_evidence(self):
+        """False is a claim about the posting too — "says it does NOT sponsor"
+        needs a quote just as much as True does."""
+        with pytest.raises(ValidationError, match="verbatim evidence"):
+            VisaSignals(sponsorship_available=False)
+
+    def test_blank_evidence_does_not_satisfy_the_rule(self):
+        with pytest.raises(ValidationError, match="verbatim evidence"):
+            VisaSignals(sponsorship_available=True, evidence=["", "   "])
+
+    def test_flag_with_evidence_is_accepted(self):
+        visa = VisaSignals(
+            sponsorship_available=True,
+            evidence=["We are able to sponsor work permits for this role."],
+        )
+        assert visa.any_flag_set is True
+
+    def test_extra_fields_rejected(self):
+        with pytest.raises(ValidationError):
+            VisaSignals(sponsorship_maybe=True)  # type: ignore[call-arg]
+
+
+class TestCompensation:
+    def test_empty_is_valid(self):
+        assert Compensation().min_amount is None
+
+    def test_amount_without_currency_rejected(self):
+        """A bare number is ambiguous between CAD and USD in Canadian postings
+        and unusable downstream."""
+        with pytest.raises(ValidationError, match="require a currency"):
+            Compensation(min_amount=120_000, period=CompPeriod.YEAR)
+
+    def test_inverted_range_rejected(self):
+        with pytest.raises(ValidationError, match="exceeds max_amount"):
+            Compensation(
+                min_amount=200_000, max_amount=100_000, currency="CAD", period=CompPeriod.YEAR
+            )
+
+    def test_valid_range(self):
+        comp = Compensation(
+            min_amount=120_000, max_amount=150_000, currency="CAD", period=CompPeriod.YEAR
+        )
+        assert comp.is_estimated is False
+
+    def test_currency_alone_is_fine(self):
+        # "salary in CAD" with no figures shouldn't fail
+        assert Compensation(currency="CAD").min_amount is None
+
+
+class TestJobComponents:
+    def test_minimal_posting_gets_safe_defaults(self):
+        c = _minimal()
+        assert c.seniority is Seniority.UNKNOWN
+        assert c.remote_policy is RemotePolicy.UNKNOWN
+        assert c.skills == [] and c.skills_unmapped == []
+        assert c.visa.any_flag_set is False
+        assert c.language == "en"
+        assert c.extraction_confidence == 0.5
+
+    def test_confidence_bounds_enforced(self):
+        with pytest.raises(ValidationError):
+            _minimal(extraction_confidence=1.4)
+        with pytest.raises(ValidationError):
+            _minimal(extraction_confidence=-0.1)
+
+    def test_unknown_field_rejected(self):
+        with pytest.raises(ValidationError):
+            _minimal(salary_guess=100)
+
+    def test_invalid_seniority_rejected(self):
+        with pytest.raises(ValidationError):
+            _minimal(seniority="principal")
+
+    def test_json_schema_is_generatable(self):
+        """Structured outputs need a JSON schema — if this raises, the API call
+        cannot be made at all."""
+        schema = JobComponents.model_json_schema()
+        assert "title_raw" in schema["properties"]
+        assert "visa" in schema["properties"]
