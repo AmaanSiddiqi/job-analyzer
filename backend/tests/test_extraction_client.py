@@ -25,10 +25,8 @@ from app.extraction.schema import JobComponents, Seniority
 from app.settings import Settings
 
 GOOD = JobComponents(
-    title_raw="Senior Software Engineer, Platform",
     title_normalized="Senior Software Engineer",
     seniority=Seniority.SENIOR,
-    company_raw="Cohere Inc.",
     company_canonical="Cohere",
     skills=["python", "aws"],
     extraction_confidence=0.9,
@@ -155,11 +153,9 @@ class TestExtractOne:
         """Structured outputs guarantee the schema but not our extra rules, so
         an evidence-less visa flag arrives here as a validation error."""
         bad = {
-            "title_raw": "T",
             "title_normalized": "T",
-            "company_raw": "C",
             "company_canonical": "C",
-            "visa": {"sponsorship_available": True, "evidence": []},
+            "visa": {"sponsorship_available": "yes", "evidence": []},
         }
         client = _client(_response(bad), _response(bad))
         with pytest.raises(ExtractionFailed):

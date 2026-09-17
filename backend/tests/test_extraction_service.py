@@ -15,6 +15,7 @@ from app.extraction.schema import (
     JobComponents,
     RemotePolicy,
     Seniority,
+    Stated,
     VisaSignals,
 )
 from app.extraction.service import cad_annual_estimate, run_extraction
@@ -24,10 +25,8 @@ from app.settings import Settings
 
 def _components(**over) -> JobComponents:
     base = {
-        "title_raw": "Senior Software Engineer",
         "title_normalized": "Senior Software Engineer",
         "seniority": Seniority.SENIOR,
-        "company_raw": "Cohere Inc.",
         "company_canonical": "Cohere",
         "skills": ["python", "aws"],
         "extraction_confidence": 0.9,
@@ -215,7 +214,7 @@ class TestRunExtraction:
         db = _db()
         quote = "We sponsor work permits for exceptional candidates."
         components = _components(
-            visa=VisaSignals(sponsorship_available=True, evidence=[quote]),
+            visa=VisaSignals(sponsorship_available=Stated.YES, evidence=[quote]),
             remote_policy=RemotePolicy.HYBRID,
         )
         with (
@@ -322,9 +321,9 @@ class TestEligibilityPersistence:
         components = _components(
             eligibility=EligibilitySignals(
                 min_years_experience=5,
-                degree_required=True,
-                french_required=False,
-                is_new_grad_friendly=False,
+                degree_required=Stated.YES,
+                french_required=Stated.NO,
+                is_new_grad_friendly=Stated.NOT_STATED,
                 evidence=["5+ years of professional software experience required"],
             )
         )
@@ -342,6 +341,8 @@ class TestEligibilityPersistence:
         assert row.min_years_experience == 5
         assert row.degree_required is True
         assert row.french_required is False
+        # NOT_STATED must reach the column as a real NULL, not False.
+        assert row.is_new_grad_friendly is None
         assert row.eligibility_evidence == [
             "5+ years of professional software experience required"
         ]

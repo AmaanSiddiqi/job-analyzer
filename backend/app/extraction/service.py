@@ -49,8 +49,9 @@ _ANNUALIZE: dict[CompPeriod, Decimal] = {
 def cad_annual_estimate(components: JobComponents) -> Decimal | None:
     """Midpoint of the stated range, annualized and converted to CAD."""
     comp = components.compensation
-    amounts = [a for a in (comp.min_amount, comp.max_amount) if a is not None]
-    if not amounts or not comp.currency or comp.period is None:
+    # 0 is the schema's "unstated" sentinel (see schema.py), not a real salary.
+    amounts = [a for a in (comp.min_amount, comp.max_amount) if a > 0]
+    if not amounts or not comp.currency or comp.period is CompPeriod.UNKNOWN:
         return None
     rate = _TO_CAD.get(comp.currency.upper())
     if rate is None:
@@ -73,16 +74,10 @@ class ExtractionRunStats:
     errors: list[str] = field(default_factory=list)
 
 
-def _resolve_posted_at(components: JobComponents, raw: RawListing) -> datetime | None:
-    """Prefer a date stated in the posting text over the source's metadata.
-
-    The model returns a `date`; raw_listings stores a `datetime` from the board
-    API. Where the text states a date, it's the more authoritative of the two
-    (an API's timestamp can reflect a re-publish), so it wins.
-    """
-    if components.posted_at is not None:
-        return datetime.combine(components.posted_at, datetime.min.time(), tzinfo=UTC)
-    return raw.posted_at
+def _none_if_blank(value: str) -> str | None:
+    """The schema uses "" for "unstated" to save union budget; the column is
+    properly nullable, so the sentinel dies here rather than reaching the DB."""
+    return value.strip() or None
 
 
 def _to_row(
@@ -95,14 +90,18 @@ def _to_row(
     comp = components.compensation
     visa = components.visa
     elig = components.eligibility
+    loc = components.location
     return ListingComponent(
         raw_listing_id=raw.id,
         prompt_version=PROMPT_VERSION,
         model=model,
-        title_raw=components.title_raw,
+        # The four *_raw fields and posted_at come from raw_listings, not the
+        # model: the board API is the authoritative copy, and asking the model
+        # to echo them cost schema budget for a worse answer (see schema.py).
+        title_raw=raw.title,
         title_normalized=components.title_normalized,
         seniority=components.seniority.value,
-        company_raw=components.company_raw,
+        company_raw=raw.company,
         company_canonical=components.company_canonical,
         skills=mapped_skills,
         # What is *still* unmapped after normalization, not the model's raw
@@ -113,28 +112,30 @@ def _to_row(
         ),
         required_quals=components.required_quals,
         preferred_quals=components.preferred_quals,
-        comp_min=comp.min_amount,
-        comp_max=comp.max_amount,
-        comp_currency=comp.currency.upper() if comp.currency else None,
-        comp_period=comp.period.value if comp.period else None,
+        comp_min=comp.min_amount or None,
+        comp_max=comp.max_amount or None,
+        comp_currency=comp.currency.upper() or None,
+        comp_period=(
+            None if comp.period is CompPeriod.UNKNOWN else comp.period.value
+        ),
         comp_is_estimated=comp.is_estimated,
         comp_cad_annual_est=cad_annual_estimate(components),
-        location_raw=components.location_raw or raw.location,
-        city=components.city,
-        region=components.region,
-        country=components.country.upper() if components.country else None,
+        location_raw=raw.location,
+        city=_none_if_blank(loc.city),
+        region=_none_if_blank(loc.region),
+        country=_none_if_blank(loc.country.upper()),
         remote_policy=components.remote_policy.value,
-        visa_sponsorship_available=visa.sponsorship_available,
-        visa_requires_existing_authorization=visa.requires_existing_authorization,
-        visa_citizenship_or_pr_required=visa.citizenship_or_pr_required,
+        visa_sponsorship_available=visa.sponsorship_available.to_bool(),
+        visa_requires_existing_authorization=visa.requires_existing_authorization.to_bool(),
+        visa_citizenship_or_pr_required=visa.citizenship_or_pr_required.to_bool(),
         min_years_experience=elig.min_years_experience,
-        degree_required=elig.degree_required,
-        french_required=elig.french_required,
-        is_new_grad_friendly=elig.is_new_grad_friendly,
-        is_internship_or_coop=elig.is_internship_or_coop,
+        degree_required=elig.degree_required.to_bool(),
+        french_required=elig.french_required.to_bool(),
+        is_new_grad_friendly=elig.is_new_grad_friendly.to_bool(),
+        is_internship_or_coop=elig.is_internship_or_coop.to_bool(),
         eligibility_evidence=[e for e in elig.evidence if e.strip()],
         visa_evidence=[e for e in visa.evidence if e.strip()],
-        posted_at=_resolve_posted_at(components, raw),
+        posted_at=raw.posted_at,
         language=components.language,
         extraction_confidence=components.extraction_confidence,
     )
