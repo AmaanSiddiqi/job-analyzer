@@ -1,6 +1,6 @@
 # Extraction eval — LLM vs frozen spaCy baseline
 
-Generated 2026-09-17T11:43:51+00:00 against `eval/gold/extraction_skills.jsonl`
+Generated 2026-09-17T11:50:06+00:00 against `eval/gold/extraction_skills.jsonl`
 
 **150 listings scored** — 40/150 human-verified (27% if n>0). Treat auto-accepted rows as a weaker signal.
 
@@ -14,7 +14,7 @@ Best configuration: **sonnet-nothinking (claude-sonnet-5, thinking=off)** — mi
 | baseline_extractor (spaCy), normalized | 0.928 | 0.503 | 0.652 | 0.664 | — | 0 |
 | haiku-nothinking (claude-haiku-4-5, thinking=off) | 0.864 | 0.654 | 0.744 | 0.727 | $4.1196 | 6 |
 | sonnet-nothinking (claude-sonnet-5, thinking=off) | 0.916 | 0.758 | 0.830 | 0.844 | $2.0852 | 1 |
-| sonnet-thinking (claude-sonnet-5, thinking=on) | 0.916 | 0.757 | 0.829 | 0.847 | $2.0740 | 1 |
+| sonnet-thinking (claude-sonnet-5, thinking=on) | 0.913 | 0.757 | 0.828 | 0.845 | $2.0711 | 1 |
 
 ### Why two baseline rows
 
@@ -26,17 +26,42 @@ The frozen P0 number (F1 0.460) compared *raw strings*: the baseline's vocabular
 |---|---|---|---|
 | haiku-nothinking (claude-haiku-4-5, thinking=off) | $0.0275 | $198 | $99 |
 | sonnet-nothinking (claude-sonnet-5, thinking=off) | $0.0139 | $100 | $50 |
-| sonnet-thinking (claude-sonnet-5, thinking=on) | $0.0138 | $100 | $50 |
+| sonnet-thinking (claude-sonnet-5, thinking=on) | $0.0138 | $99 | $50 |
+
+**These costs are a lower bound for haiku-nothinking, sonnet-nothinking, sonnet-thinking.** Those rows were predicted before `price_call` accounted for cached prompt tokens, which the API reports separately from `input_tokens` — so a cached read was billed at zero. The system prompt is 2,299 Sonnet tokens and is cache-read on nearly every call, which is about **+$0.0007/listing** (~5%) not shown above. Rows predicted after the fix carry the real number; the table was not re-run at a cost of several dollars to correct a 5% figure whose direction and size are both known.
+
+## What this decides
+
+**Use Sonnet 5 with thinking off for the backfill.** It wins on both axes against the alternatives tested, and the two open cost questions from CLAUDE.md both resolve against spending more.
+
+### Haiku 4.5 is worse *and* more expensive here
+
+That ordering is not a typo and it is not about the token rates. Two things stack:
+
+1. **It gets no prompt caching.** Our system prompt is 2,299 tokens to Sonnet's tokenizer but only **1,629** to Haiku's — under Haiku 4.5's 2,048-token minimum cacheable prefix. The `cache_control` marker is silently inert, so Haiku re-pays for the entire instruction block and skill list on every single call while Sonnet reads it from cache.
+2. **It degenerates under the constrained grammar.** Six listings failed outright with truncated JSON after the model emitted runs like `999999999999...` and `012345678901...` into a numeric field until it hit `max_tokens`. Those runs are billed.
+
+Net: 3x the cost per listing at **-0.086 F1**. Raising the taxonomy past ~2,048 tokens of system prompt would fix the caching half, but the quality gap is the part that matters and it would not close.
+
+### Thinking on vs off is a genuine null result
+
+Identical to three decimal places on cost and within 0.002 F1. This was measured twice, because the first run was invalid: `build_request` only ever set `thinking` in order to *disable* it, so the "on" config just omitted the parameter and took the default. After fixing that to `thinking.type: adaptive` (Sonnet 5 rejects the older `enabled` + `budget_tokens` shape outright), the null result held — adaptive thinking contributes a median of **+0 output tokens** at `effort=low`. The real lever is `effort`, not the thinking flag; CLAUDE.md's assumption that thinking would double the cost to ~$0.032/listing came from token estimation and is not what the API actually does here. `EXTRACTION_THINKING` stays **false** — now on evidence rather than on the assumption.
+
+### Where the remaining recall is lost
+
+Precision is 0.916 and recall 0.758, so the gap is misses, not fabrication — the right direction for a product that must not invent requirements. The worst-listing table below shows the two real causes: genuine misses on long infrastructure postings (Compass Digital, Amazon Science), and taxonomy-vs-annotator disagreements where the model returned a defensible broader id (`artificial intelligence` where gold said `ai agents`). The second kind is a taxonomy question, not an extraction one.
 
 ## Flagship signal yield
 
 Not scored against gold (no eligibility labels yet — that's the next review pass); reported so the rates can be sanity-checked against the corpus-wide regex scan that motivated the pivot (experience stated in 27.9% of postings, visa signals <1%).
 
+**Read the 69% as a property of the gold set, not of the corpus.** It looks alarming against the corpus-wide 27.9%, so it was audited: 102 of 103 evidence quotes appear verbatim in the source description and 99 contain an explicit "N years" phrase, and an independent regex over these same 150 descriptions finds a years-phrase in exactly 103 of them. The extractor is not inferring — the gold set simply over-represents postings that state experience, because it was sampled from full board descriptions while the corpus also contains truncated aggregator rows. The 27.9% corpus figure stands; this 69% is not a revision of it. Haiku's 6% on the same descriptions is a miss rate, not a different corpus.
+
 | Config | listings with min_years_experience | with any visa signal |
 |---|---|---|
-| haiku-nothinking (claude-haiku-4-5, thinking=off) | 9/150 (6%) | 144/150 (96%) |
-| sonnet-nothinking (claude-sonnet-5, thinking=off) | 103/150 (69%) | 149/150 (99%) |
-| sonnet-thinking (claude-sonnet-5, thinking=on) | 103/150 (69%) | 149/150 (99%) |
+| haiku-nothinking (claude-haiku-4-5, thinking=off) | 9/150 (6%) | 1/150 (1%) |
+| sonnet-nothinking (claude-sonnet-5, thinking=off) | 103/150 (69%) | 9/150 (6%) |
+| sonnet-thinking (claude-sonnet-5, thinking=on) | 103/150 (69%) | 8/150 (5%) |
 
 ## Worst listings — sonnet-nothinking (claude-sonnet-5, thinking=off)
 
