@@ -88,7 +88,9 @@ def load_predictions(config: str, prompt_version: str = PROMPT_VERSION) -> dict[
     return out
 
 
-async def predict(config: EvalConfig, gold_path: Path, limit: int | None) -> None:
+async def predict(
+    config: EvalConfig, gold_path: Path, limit: int | None, concurrency: int = 6
+) -> None:
     import anthropic
 
     if not os.getenv("ANTHROPIC_API_KEY"):
@@ -104,31 +106,47 @@ async def predict(config: EvalConfig, gold_path: Path, limit: int | None) -> Non
         return
 
     print(f"[{config.name}] {len(todo)} to predict ({len(done)} cached), model={config.model} "
-          f"thinking={config.thinking}")
+          f"thinking={config.thinking}, concurrency={concurrency}")
     settings = config.settings()
     PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
     spend = Decimal(0)
     failures = 0
+    finished = 0
+
+    # Bounded concurrency: 450 sequential calls across three configs is over an
+    # hour of wall-clock for no reason. Each row is independent and the sink is
+    # keyed by listing_id, so order doesn't matter — but writes still need the
+    # lock, since two coroutines appending at once would interleave a line.
+    gate = asyncio.Semaphore(concurrency)
+    write_lock = asyncio.Lock()
 
     async with anthropic.AsyncAnthropic() as client:
         with prediction_path(config.name).open("a") as sink:
-            for i, row in enumerate(todo, 1):
-                try:
-                    result = await extract_one(
-                        client,
-                        settings,
-                        title=row.title,
-                        company=row.company,
-                        location=None,
-                        description=row.raw_description,
-                    )
-                except ExtractionFailed as e:
-                    failures += 1
-                    print(f"  [{i}/{len(todo)}] FAILED {row.listing_id}: {e}")
-                    # Record the failure so scoring counts it against the config
-                    # rather than silently omitting it.
-                    sink.write(
-                        json.dumps(
+
+            async def emit(record: dict) -> None:
+                async with write_lock:
+                    sink.write(json.dumps(record) + "\n")
+                    sink.flush()
+
+            async def one(row: GoldExtractionLabel) -> None:
+                nonlocal spend, failures, finished
+                async with gate:
+                    try:
+                        result = await extract_one(
+                            client,
+                            settings,
+                            title=row.title,
+                            company=row.company,
+                            location=None,
+                            description=row.raw_description,
+                        )
+                    except ExtractionFailed as e:
+                        failures += 1
+                        finished += 1
+                        print(f"  [{finished}/{len(todo)}] FAILED {row.listing_id}: {e}")
+                        # Record the failure so scoring counts it against the
+                        # config rather than silently omitting it.
+                        await emit(
                             {
                                 "listing_id": row.listing_id,
                                 "config": config.name,
@@ -138,15 +156,12 @@ async def predict(config: EvalConfig, gold_path: Path, limit: int | None) -> Non
                                 "error": str(e)[:500],
                             }
                         )
-                        + "\n"
-                    )
-                    sink.flush()
-                    continue
+                        return
 
-                cost = price_call(result.model, result.input_tokens, result.output_tokens)
-                spend += cost
-                sink.write(
-                    json.dumps(
+                    cost = price_call(result.model, result.input_tokens, result.output_tokens)
+                    spend += cost
+                    finished += 1
+                    await emit(
                         {
                             "listing_id": row.listing_id,
                             "config": config.name,
@@ -160,11 +175,10 @@ async def predict(config: EvalConfig, gold_path: Path, limit: int | None) -> Non
                             "components": result.components.model_dump(mode="json"),
                         }
                     )
-                    + "\n"
-                )
-                sink.flush()
-                if i % 10 == 0 or i == len(todo):
-                    print(f"  [{i}/{len(todo)}] spend so far ${spend:.4f}")
+                    if finished % 10 == 0 or finished == len(todo):
+                        print(f"  [{finished}/{len(todo)}] spend so far ${spend:.4f}")
+
+            await asyncio.gather(*(one(row) for row in todo))
 
     per = spend / len(todo) if todo else Decimal(0)
     print(f"[{config.name}] done — {len(todo) - failures} ok, {failures} failed, "
@@ -178,8 +192,11 @@ def main() -> None:
     parser.add_argument(
         "--limit", type=int, default=None, help="cap listings this run (use for a cheap dry run)"
     )
+    parser.add_argument(
+        "--concurrency", type=int, default=6, help="in-flight requests (back off on 429s)"
+    )
     args = parser.parse_args()
-    asyncio.run(predict(CONFIGS[args.config], args.gold, args.limit))
+    asyncio.run(predict(CONFIGS[args.config], args.gold, args.limit, args.concurrency))
 
 
 if __name__ == "__main__":
