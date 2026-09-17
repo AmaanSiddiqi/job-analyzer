@@ -38,6 +38,9 @@ class ExtractionResult:
     components: JobComponents
     input_tokens: int
     output_tokens: int
+    # Excluded from input_tokens by the API, and priced differently — see cost.py.
+    cache_read_tokens: int
+    cache_write_tokens: int
     model: str
     prompt_version: str
     attempts: int
@@ -74,8 +77,18 @@ def build_request(
     # eval run. Empty string means "don't send it".
     if settings.extraction_effort:
         kwargs["output_config"] = {"effort": settings.extraction_effort}
-    if not settings.extraction_thinking:
-        kwargs["thinking"] = {"type": "disabled"}
+    # Both branches are explicit on purpose. Omitting `thinking` entirely does
+    # NOT turn it on — it takes the API default, which measured as a median of
+    # +0 output tokens versus thinking-off, silently making the first "thinking
+    # on vs off" eval a comparison of one setting against itself.
+    #
+    # Sonnet 5 wants "adaptive", not the older "enabled" + budget_tokens shape:
+    #   400 '"thinking.type.enabled" is not supported for this model. Use
+    #        "thinking.type.adaptive" and "output_config.effort"'
+    # How *much* it thinks is then governed by effort above, not by a budget.
+    kwargs["thinking"] = (
+        {"type": "adaptive"} if settings.extraction_thinking else {"type": "disabled"}
+    )
     return kwargs
 
 
@@ -157,6 +170,8 @@ async def extract_one(
             components=components,
             input_tokens=response.usage.input_tokens,
             output_tokens=response.usage.output_tokens,
+            cache_read_tokens=getattr(response.usage, "cache_read_input_tokens", 0) or 0,
+            cache_write_tokens=getattr(response.usage, "cache_creation_input_tokens", 0) or 0,
             model=response.model,
             prompt_version=PROMPT_VERSION,
             attempts=attempt,

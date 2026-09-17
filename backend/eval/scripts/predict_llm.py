@@ -168,7 +168,13 @@ async def predict(
                         )
                         return
 
-                    cost = price_call(result.model, result.input_tokens, result.output_tokens)
+                    cost = price_call(
+                        result.model,
+                        result.input_tokens,
+                        result.output_tokens,
+                        cache_read_tokens=result.cache_read_tokens,
+                        cache_write_tokens=result.cache_write_tokens,
+                    )
                     spend += cost
                     finished += 1
                     await emit(
@@ -181,6 +187,8 @@ async def predict(
                             "attempts": result.attempts,
                             "input_tokens": result.input_tokens,
                             "output_tokens": result.output_tokens,
+                            "cache_read_tokens": result.cache_read_tokens,
+                            "cache_write_tokens": result.cache_write_tokens,
                             "cost_usd": str(cost),
                             "components": result.components.model_dump(mode="json"),
                         }

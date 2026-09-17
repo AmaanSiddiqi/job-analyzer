@@ -249,6 +249,8 @@ async def run_extraction(
                 prompt_version=result.prompt_version,
                 input_tokens=result.input_tokens,
                 output_tokens=result.output_tokens,
+                cache_read_tokens=result.cache_read_tokens,
+                cache_write_tokens=result.cache_write_tokens,
             )
             if result.attempts > 1:
                 stats.retried += 1

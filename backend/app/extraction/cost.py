@@ -30,22 +30,44 @@ _MILLION = Decimal(1_000_000)
 # The Batch API bills at 50% of standard rates.
 BATCH_DISCOUNT = Decimal("0.5")
 
+# Cached prompt tokens are billed off the input rate: writing the cache costs a
+# premium, reading it is nearly free. Counting reads as zero (which is what
+# happens if you only look at `usage.input_tokens`) understates the true cost of
+# every cached call, and this module exists to not understate spend.
+CACHE_WRITE_MULTIPLIER = Decimal("1.25")  # 5-minute ephemeral TTL
+CACHE_READ_MULTIPLIER = Decimal("0.1")
+
 
 class CostCapExceeded(RuntimeError):
     """Raised to abort a run that has reached its spend cap."""
 
 
 def price_call(
-    model: str, input_tokens: int, output_tokens: int, *, batch: bool = False
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    *,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
+    batch: bool = False,
 ) -> Decimal:
     """USD cost of one call. Unknown models price at the most expensive known
-    rate rather than 0 — under-counting spend is the dangerous direction."""
+    rate rather than 0 — under-counting spend is the dangerous direction.
+
+    `input_tokens` from the API excludes anything served from the prompt cache,
+    so the cache counts must be passed separately or cached calls look free.
+    """
     if model in _PRICES:
         in_rate, out_rate = _PRICES[model]
     else:
         in_rate, out_rate = max(_PRICES.values(), key=lambda p: p[1])
         log.warning("unknown model %s — pricing at the highest known rate", model)
-    cost = (Decimal(input_tokens) * in_rate + Decimal(output_tokens) * out_rate) / _MILLION
+    billable_input = (
+        Decimal(input_tokens)
+        + Decimal(cache_write_tokens) * CACHE_WRITE_MULTIPLIER
+        + Decimal(cache_read_tokens) * CACHE_READ_MULTIPLIER
+    )
+    cost = (billable_input * in_rate + Decimal(output_tokens) * out_rate) / _MILLION
     return cost * BATCH_DISCOUNT if batch else cost
 
 
@@ -80,10 +102,23 @@ async def record_usage(
     prompt_version: str | None,
     input_tokens: int,
     output_tokens: int,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
     batch: bool = False,
 ) -> Decimal:
-    """Append one call to the ledger and return its cost."""
-    cost = price_call(model, input_tokens, output_tokens, batch=batch)
+    """Append one call to the ledger and return its cost.
+
+    `input_tokens` is stored as the API reports it (uncached only); the cache
+    counts fold into `cost_usd`, which is what the cap actually reads.
+    """
+    cost = price_call(
+        model,
+        input_tokens,
+        output_tokens,
+        cache_read_tokens=cache_read_tokens,
+        cache_write_tokens=cache_write_tokens,
+        batch=batch,
+    )
     db.add(
         LlmUsage(
             run_id=run_id,

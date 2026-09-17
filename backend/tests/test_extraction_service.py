@@ -72,6 +72,8 @@ def _result(components=None, attempts=1):
         components=components or _components(),
         input_tokens=5000,
         output_tokens=800,
+        cache_read_tokens=2299,
+        cache_write_tokens=0,
         model="claude-sonnet-5",
         prompt_version=PROMPT_VERSION,
         attempts=attempts,

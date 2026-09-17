@@ -88,8 +88,16 @@ class TestBuildRequest:
         req = build_request(_settings(), "T", "C", None, "x" * (MAX_DESCRIPTION_CHARS + 5_000))
         assert len(req["messages"][0]["content"]) < MAX_DESCRIPTION_CHARS + 500
 
-    def test_thinking_disabled_only_when_configured(self):
-        assert "thinking" not in build_request(_settings(), "T", "C", None, "b")
+    def test_thinking_is_always_explicit(self):
+        """Both branches must set `thinking`. This test previously asserted the
+        opposite — that thinking-on omits the parameter — which is exactly the
+        bug: omitting it takes the API default rather than enabling anything, so
+        the first "thinking on vs off" eval compared one setting with itself
+        (median +0 output tokens between the two configs)."""
+        on = build_request(_settings(extraction_thinking=True), "T", "C", None, "b")
+        # "adaptive", not "enabled": Sonnet 5 rejects the older enabled +
+        # budget_tokens shape with a 400 and names this one in the error.
+        assert on["thinking"] == {"type": "adaptive"}
         off = build_request(_settings(extraction_thinking=False), "T", "C", None, "b")
         assert off["thinking"] == {"type": "disabled"}
 

@@ -59,6 +59,10 @@ class Scored:
     # reported so the flagship signal's hit rate is visible
     with_min_years: int = 0
     with_visa: int = 0
+    # Rows predicted before cost.py became cache-aware: their recorded cost
+    # omits the cached prompt reads, so the config's total is a lower bound.
+    rows_without_cache_data: int = 0
+    cache_read_tokens: int = 0
     worst: list[tuple[str, float, list[str], list[str]]] = field(default_factory=list)
 
 
@@ -158,6 +162,7 @@ def score_config(gold: list[GoldExtractionLabel], config_name: str) -> Scored | 
     cost = Decimal(0)
     retries = 0
     with_min_years = with_visa = 0
+    rows_without_cache_data = cache_read_tokens = 0
     for row in gold:
         pred = preds.get(row.listing_id)
         if pred is None:
@@ -170,13 +175,21 @@ def score_config(gold: list[GoldExtractionLabel], config_name: str) -> Scored | 
             continue
         cost += Decimal(pred.get("cost_usd", "0"))
         retries += max(0, int(pred.get("attempts", 1)) - 1)
+        if "cache_read_tokens" in pred:
+            cache_read_tokens += int(pred["cache_read_tokens"])
+        else:
+            rows_without_cache_data += 1
         comp = pred["components"]
         rows.append((row, normalize([*comp.get("skills", []), *comp.get("skills_unmapped", [])])))
         if (comp.get("eligibility") or {}).get("min_years_experience") is not None:
             with_min_years += 1
         visa = comp.get("visa") or {}
+        # The v3 schema reports "not_stated" instead of null (unions are
+        # expensive — see schema.py), so an `is not None` check here counted
+        # every listing as carrying a visa signal and reported 99% against a
+        # corpus-measured rate of under 1%.
         if any(
-            visa.get(k) is not None
+            visa.get(k) not in (None, "not_stated")
             for k in (
                 "sponsorship_available",
                 "requires_existing_authorization",
@@ -195,6 +208,8 @@ def score_config(gold: list[GoldExtractionLabel], config_name: str) -> Scored | 
         retries=retries,
         with_min_years=with_min_years,
         with_visa=with_visa,
+        rows_without_cache_data=rows_without_cache_data,
+        cache_read_tokens=cache_read_tokens,
     )
 
 
@@ -256,6 +271,22 @@ def render(results: list[Scored], baseline_raw: Scored, gold_path: Path) -> str:
         lines.append(
             f"| {r.label} | ${per:.4f} | ${per * 7200:.0f} | ${per * 7200 / 2:.0f} |"
         )
+
+    stale = [r for r in llm if r.rows_without_cache_data]
+    if stale:
+        lines += [
+            "",
+            "**These costs are a lower bound for "
+            + ", ".join(r.label.split(" ")[0] for r in stale)
+            + ".** Those rows were predicted before `price_call` accounted for "
+            "cached prompt tokens, which the API reports separately from "
+            "`input_tokens` — so a cached read was billed at zero. The system "
+            "prompt is 2,299 Sonnet tokens and is cache-read on nearly every "
+            "call, which is about **+$0.0007/listing** (~5%) not shown above. "
+            "Rows predicted after the fix carry the real number; the table was "
+            "not re-run at a cost of several dollars to correct a 5% figure "
+            "whose direction and size are both known.",
+        ]
 
     lines += [
         "",
