@@ -170,3 +170,22 @@ async def test_stub_client_is_never_a_real_client():
     in tests (which would need a key and hit the network)."""
     assert not isinstance(_client(_response(GOOD)), anthropic.AsyncAnthropic)
     assert isinstance(AsyncMock(), AsyncMock)
+
+
+class TestEffortParameter:
+    """Haiku 4.5 rejects `output_config` with a 400 instead of ignoring it, so
+    sending it unconditionally failed an entire 150-listing eval run."""
+
+    def test_effort_is_sent_when_set(self):
+        req = build_request(
+            _settings(extraction_effort="low"),
+            title="T", company="C", location=None, description="body",
+        )
+        assert req["output_config"] == {"effort": "low"}
+
+    def test_effort_is_omitted_when_blank(self):
+        req = build_request(
+            _settings(extraction_effort=""),
+            title="T", company="C", location=None, description="body",
+        )
+        assert "output_config" not in req

@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
-from app.extraction.client import ExtractionFailed, extract_one
+from app.extraction.client import extract_one
 from app.extraction.cost import price_call
 from app.extraction.prompts import PROMPT_VERSION
 from app.settings import Settings
@@ -58,7 +58,11 @@ class EvalConfig:
 CONFIGS: dict[str, EvalConfig] = {
     "sonnet-nothinking": EvalConfig("sonnet-nothinking", "claude-sonnet-5", thinking=False),
     "sonnet-thinking": EvalConfig("sonnet-thinking", "claude-sonnet-5", thinking=True),
-    "haiku-nothinking": EvalConfig("haiku-nothinking", "claude-haiku-4-5", thinking=False),
+    # effort="" because Haiku 4.5 rejects `output_config` outright rather than
+    # ignoring it — the first run of this config failed 150/150 on that alone.
+    "haiku-nothinking": EvalConfig(
+        "haiku-nothinking", "claude-haiku-4-5", thinking=False, effort=""
+    ),
 }
 
 
@@ -140,10 +144,16 @@ async def predict(
                             location=None,
                             description=row.raw_description,
                         )
-                    except ExtractionFailed as e:
+                    except Exception as e:
+                        # Deliberately broad. ExtractionFailed is the expected
+                        # case, but anything else escaping here used to abort
+                        # the whole asyncio.gather — a 150-listing paid run lost
+                        # 60% of its work to one bad row, twice. One listing's
+                        # failure must never cost the batch.
                         failures += 1
                         finished += 1
-                        print(f"  [{finished}/{len(todo)}] FAILED {row.listing_id}: {e}")
+                        kind = type(e).__name__
+                        print(f"  [{finished}/{len(todo)}] FAILED {row.listing_id}: {kind}: {e}")
                         # Record the failure so scoring counts it against the
                         # config rather than silently omitting it.
                         await emit(
@@ -153,7 +163,7 @@ async def predict(
                                 "model": config.model,
                                 "prompt_version": PROMPT_VERSION,
                                 "failed": True,
-                                "error": str(e)[:500],
+                                "error": f"{kind}: {e}"[:500],
                             }
                         )
                         return
@@ -178,7 +188,13 @@ async def predict(
                     if finished % 10 == 0 or finished == len(todo):
                         print(f"  [{finished}/{len(todo)}] spend so far ${spend:.4f}")
 
-            await asyncio.gather(*(one(row) for row in todo))
+            results = await asyncio.gather(
+                *(one(row) for row in todo), return_exceptions=True
+            )
+            for row, outcome in zip(todo, results, strict=True):
+                if isinstance(outcome, BaseException):
+                    print(f"  UNRECORDED {row.listing_id}: "
+                          f"{type(outcome).__name__}: {outcome}")
 
     per = spend / len(todo) if todo else Decimal(0)
     print(f"[{config.name}] done — {len(todo) - failures} ok, {failures} failed, "
