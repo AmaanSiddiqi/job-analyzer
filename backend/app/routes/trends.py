@@ -153,22 +153,51 @@ async def trends_skill_history(
     if not skills:
         return SkillHistoryResponse(series=[])
 
+    # Bucket by when the employer *posted* the listing, not when we scraped it.
+    # Scrape date made this a history of our own ingestion: the Aug 2026 board
+    # backfill loaded 1,331 already-open postings in one run and showed up as a
+    # one-week spike. job_postings has no posted_at, so it comes from
+    # raw_listings (append-only, hence min() per URL); LinkedIn rows have none
+    # and fall back to scrape date, which for a daily scraper is close enough.
     stmt = text("""
-        SELECT
-            date_trunc('week', date_scraped)::date AS week,
-            skill,
-            count(*) AS n
-        FROM job_postings, unnest(skills) AS skill
-        WHERE date_scraped >= now() - make_interval(weeks => :weeks)
-          AND skill = ANY(:skills)
-        GROUP BY 1, 2
+        WITH posted AS (
+            SELECT source_url, min(posted_at) AS posted_at
+            FROM raw_listings
+            WHERE posted_at IS NOT NULL
+            GROUP BY source_url
+        ),
+        dated AS (
+            SELECT
+                jp.skills,
+                date_trunc('week', COALESCE(p.posted_at, jp.date_scraped))::date AS week
+            FROM job_postings jp
+            LEFT JOIN posted p ON p.source_url = jp.source_url
+            WHERE COALESCE(p.posted_at, jp.date_scraped)
+                  >= now() - make_interval(weeks => :weeks)
+        ),
+        totals AS (
+            SELECT week, count(*) AS total FROM dated GROUP BY week
+        )
+        SELECT d.week, skill, count(*) AS n, t.total
+        FROM dated d
+        CROSS JOIN LATERAL unnest(d.skills) AS skill
+        JOIN totals t ON t.week = d.week
+        WHERE skill = ANY(:skills)
+        GROUP BY d.week, skill, t.total
         ORDER BY 1, 2
     """)
     rows = (await db.execute(stmt, {"weeks": weeks, "skills": list(skills)})).all()
 
     by_skill: dict[str, list[SkillWeekPoint]] = defaultdict(list)
     for row in rows:
-        by_skill[row.skill].append(SkillWeekPoint(week=row.week, count=row.n))
+        by_skill[row.skill].append(
+            SkillWeekPoint(
+                week=row.week,
+                count=row.n,
+                total=row.total,
+                share=round(row.n / row.total, 4) if row.total else 0.0,
+            )
+        )
 
     series = [
         SkillHistorySeries(skill=skill, data=by_skill.get(skill, []))

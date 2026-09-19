@@ -139,6 +139,10 @@ export const triggerBoardIngest = () =>
 export interface SkillWeekPoint {
   week: string;
   count: number;
+  /** Postings dated to this week, across all skills. */
+  total: number;
+  /** count / total — comparable across source changes, unlike count. */
+  share: number;
 }
 
 export interface SkillHistorySeries {

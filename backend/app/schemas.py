@@ -80,6 +80,11 @@ class CompanyTrendsResponse(BaseModel):
 class SkillWeekPoint(BaseModel):
     week: datetime
     count: int
+    # Postings dated to this week across all skills, and this skill's share of
+    # them. Share is what the chart plots: raw counts are not comparable across
+    # the LinkedIn -> board-JSON source change, a percentage is.
+    total: int = 0
+    share: float = 0.0
 
 
 class SkillHistorySeries(BaseModel):
