@@ -107,3 +107,23 @@ class TestCachePricing:
             "claude-sonnet-5", 1_000, 500, cache_read_tokens=10_000, batch=True
         )
         assert batched == live * Decimal("0.5")
+
+    def test_one_hour_writes_cost_double_not_1_25x(self):
+        """The batch path's 1h TTL writes bill at 2x. Pricing them as 5m writes
+        undercounts every cold-cache warm-up."""
+        plain = price_call("claude-sonnet-5", 1_000, 500)
+        written = price_call("claude-sonnet-5", 1_000, 500, cache_write_1h_tokens=10_000)
+        # 10k tokens at 2x the $3/MTok input rate = $0.06
+        assert written - plain == Decimal("0.06")
+
+    def test_cache_write_split_separates_the_two_ttls(self):
+        from types import SimpleNamespace
+
+        from app.extraction.cost import cache_write_split
+
+        usage = SimpleNamespace(
+            cache_creation_input_tokens=5_000,
+            cache_creation=SimpleNamespace(ephemeral_1h_input_tokens=4_322),
+        )
+        assert cache_write_split(usage) == (678, 4_322)
+        assert cache_write_split(SimpleNamespace(cache_creation_input_tokens=100)) == (100, 0)

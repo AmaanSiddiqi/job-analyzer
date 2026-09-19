@@ -9,12 +9,18 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import require_admin_key
 from ..database import get_db
 from ..extraction.prompts import PROMPT_VERSION
+from ..extraction.service import (
+    already_extracted,
+    dead_lettered,
+    eligible_listings,
+    in_flight,
+)
 from ..models import DeadLetter, ListingComponent, LlmUsage, RawListing, UnmappedSkill
 from ..rate_limit import limiter
 
@@ -139,10 +145,11 @@ async def requeue_dead_letter(
 ) -> RequeueResponse:
     """Mark a dead letter resolved so its listing is eligible again.
 
-    Requeue is deliberately only "clear the marker": the extraction query picks
-    up any listing lacking a row at the current prompt version, so resolving is
-    all the next run needs. Nothing here calls the model, so a requeue cannot
-    spend money by itself.
+    Requeue is deliberately only "clear the marker": pending_listings skips
+    postings with an unresolved dead letter at the current prompt version, so
+    resolving is all the next run needs. (Until the batch PR it didn't — this
+    endpoint was a no-op, and failing postings were retried every run.)
+    Nothing here calls the model, so a requeue cannot spend money by itself.
     """
     dead = await db.get(DeadLetter, dead_letter_id)
     if not dead:
@@ -160,8 +167,13 @@ async def requeue_dead_letter(
 class ExtractionStatusResponse(BaseModel):
     prompt_version: str
     raw_listings: int
+    # Postings the pipeline is meant to extract (latest version per URL, no
+    # aggregator rows, posted within the staleness window). coverage_pct is
+    # measured against this, not raw_listings — see extraction_status.
+    eligible: int
     extracted: int
     pending: int
+    in_flight: int
     coverage_pct: float
     with_visa_signals: int
     unresolved_dead_letters: int
@@ -177,13 +189,31 @@ async def extraction_status(
 ) -> ExtractionStatusResponse:
     """Coverage, visa-signal yield and spend at the current prompt version.
 
-    coverage_pct is the P1 DoD number (>=90% of ingested listings extracted).
+    coverage_pct is the P1 DoD number (>=90% of ingested listings extracted),
+    and it is measured against *eligible* postings. Dividing by every
+    raw_listings row counted 26k aggregator rows the pipeline is designed never
+    to extract, every edit-version of every posting, and stale postings — a
+    finished backfill read ~6%, so the DoD could never pass by its own measure.
     """
     raw_total = await db.scalar(select(func.count()).select_from(RawListing)) or 0
     at_version = ListingComponent.prompt_version == PROMPT_VERSION
-    extracted = (
-        await db.scalar(select(func.count()).select_from(ListingComponent).where(at_version)) or 0
-    )
+    eligible_ids = eligible_listings().with_only_columns(RawListing.id).subquery()
+
+    async def _count_eligible(*conditions: ColumnElement[bool]) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(RawListing)
+            .where(RawListing.id.in_(select(eligible_ids.c.id)))
+        )
+        for condition in conditions:
+            stmt = stmt.where(condition)
+        return await db.scalar(stmt) or 0
+
+    eligible = await _count_eligible()
+    extracted = await _count_eligible(already_extracted())
+    batches_in_flight = await _count_eligible(in_flight())
+    # Excluded from pending: pending_listings won't pick these up until requeued.
+    blocked = await _count_eligible(~already_extracted(), dead_lettered())
     with_visa = (
         await db.scalar(
             select(func.count())
@@ -229,9 +259,11 @@ async def extraction_status(
     return ExtractionStatusResponse(
         prompt_version=PROMPT_VERSION,
         raw_listings=raw_total,
+        eligible=eligible,
         extracted=extracted,
-        pending=max(raw_total - extracted, 0),
-        coverage_pct=round(100 * extracted / raw_total, 1) if raw_total else 0.0,
+        pending=max(eligible - extracted - batches_in_flight - blocked, 0),
+        in_flight=batches_in_flight,
+        coverage_pct=round(100 * extracted / eligible, 1) if eligible else 0.0,
         with_visa_signals=with_visa,
         unresolved_dead_letters=dead,
         spend_usd_total=float(total_spend or 0),

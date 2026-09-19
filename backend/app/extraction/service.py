@@ -13,10 +13,10 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import anthropic
-from sqlalchemy import exists, select
+from sqlalchemy import ColumnElement, Select, any_, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import DeadLetter, ListingComponent, RawListing
+from ..models import DeadLetter, ExtractionBatch, ListingComponent, RawListing
 from ..services.skills import record_unmapped
 from ..settings import Settings, get_settings
 from .client import ExtractionFailed, extract_one
@@ -141,36 +141,31 @@ def _to_row(
     )
 
 
-async def pending_listings(
-    db: AsyncSession, limit: int, settings: Settings | None = None
-) -> list[RawListing]:
-    """Listings worth extracting, freshest first.
+def eligible_listings(settings: Settings | None = None) -> Select[tuple[RawListing]]:
+    """Every posting the pipeline is *meant* to extract — one row per posting.
 
-    This query *is* the resumability mechanism — nothing tracks progress
-    separately, so a run that dies mid-way simply has fewer pending rows next
-    time. It also carries the two standing cost rules from CLAUDE.md, because
-    the cheapest token is the one never sent:
+    Shared by pending_listings and the coverage metric, so "what we extract"
+    and "what coverage is measured against" cannot drift apart. The rules:
 
-      * skip postings older than the staleness window — 26% of the corpus is
-        >90 days old and mostly filled, frozen or evergreen, so extracting it
-        is money spent on listings nobody should apply to;
-      * skip aggregator rows — Adzuna/Jooble give truncated snippets, which
-        make poor extraction input; they earn their keep on breadth and company
-        discovery instead.
-
-    Ordered newest-first (not oldest) so that when a run is capped, the budget
-    went to the listings users would actually see.
+      * **the newest version of each posting only.** raw_listings is
+        append-only: an edited posting gets a new row. Selecting every row
+        would pay to extract the same job once per edit — measured at 29% of
+        the first backfill (2,521 rows, 1,782 postings). An edit *after* a
+        posting was extracted does get re-extracted, since requirements change.
+      * the two standing cost rules from CLAUDE.md: skip aggregator rows
+        (truncated snippets make poor input) and postings older than the
+        staleness window (26% of the corpus, mostly filled or evergreen).
     """
     settings = settings or get_settings()
-    already_done = (
-        select(ListingComponent.id)
-        .where(ListingComponent.raw_listing_id == RawListing.id)
-        .where(ListingComponent.prompt_version == PROMPT_VERSION)
+    latest = (
+        select(RawListing.id)
+        .distinct(RawListing.source_url)
+        .order_by(RawListing.source_url, RawListing.fetched_at.desc(), RawListing.id.desc())
     )
-    stmt = select(RawListing).where(~exists(already_done))
-
     if settings.extraction_skip_aggregators:
-        stmt = stmt.where(RawListing.source_type.notin_(AGGREGATOR_SOURCES))
+        latest = latest.where(RawListing.source_type.notin_(AGGREGATOR_SOURCES))
+
+    stmt = select(RawListing).where(RawListing.id.in_(latest.scalar_subquery()))
     if settings.extraction_max_posting_age_days:
         cutoff = datetime.now(UTC) - timedelta(days=settings.extraction_max_posting_age_days)
         # posted_at NULL means the source gave no date — keep those rather than
@@ -178,8 +173,63 @@ async def pending_listings(
         stmt = stmt.where(
             (RawListing.posted_at.is_(None)) | (RawListing.posted_at >= cutoff)
         )
+    return stmt
 
-    stmt = stmt.order_by(RawListing.posted_at.desc().nullslast()).limit(limit)
+
+def already_extracted() -> ColumnElement[bool]:
+    return exists(
+        select(ListingComponent.id)
+        .where(ListingComponent.raw_listing_id == RawListing.id)
+        .where(ListingComponent.prompt_version == PROMPT_VERSION)
+    )
+
+
+def dead_lettered() -> ColumnElement[bool]:
+    # Scoped to this prompt version, so a new prompt gets a fresh attempt.
+    return exists(
+        select(DeadLetter.id)
+        .where(DeadLetter.kind == "extraction")
+        .where(DeadLetter.raw_listing_id == RawListing.id)
+        .where(DeadLetter.resolved_at.is_(None))
+        .where(DeadLetter.payload["prompt_version"].astext == PROMPT_VERSION)
+    )
+
+
+def in_flight() -> ColumnElement[bool]:
+    return exists(
+        select(ExtractionBatch.id)
+        .where(ExtractionBatch.status == "submitted")
+        .where(RawListing.id == any_(ExtractionBatch.raw_listing_ids))
+    )
+
+
+async def pending_listings(
+    db: AsyncSession, limit: int, settings: Settings | None = None
+) -> list[RawListing]:
+    """Eligible postings still to extract, freshest first.
+
+    This query *is* the resumability mechanism — nothing tracks progress
+    separately, so a run that dies mid-way simply has fewer pending rows next
+    time. On top of eligible_listings() it excludes:
+
+      * postings already extracted at this prompt version;
+      * postings dead-lettered at this prompt version. Without this a posting
+        that always fails was retried, and billed, on every run forever;
+        resolving it via the requeue endpoint makes it eligible again;
+      * postings in a batch that hasn't been collected yet, or the next
+        submission would pay for them a second time.
+
+    Ordered newest-first so that when a run is capped, the budget went to the
+    listings users would actually see.
+    """
+    stmt = (
+        eligible_listings(settings)
+        .where(~already_extracted())
+        .where(~dead_lettered())
+        .where(~in_flight())
+        .order_by(RawListing.posted_at.desc().nullslast())
+        .limit(limit)
+    )
     return list((await db.execute(stmt)).scalars().all())
 
 
@@ -222,21 +272,7 @@ async def run_extraction(
                     description=raw.description,
                 )
             except ExtractionFailed as e:
-                db.add(
-                    DeadLetter(
-                        kind="extraction",
-                        raw_listing_id=raw.id,
-                        payload={
-                            "prompt_version": PROMPT_VERSION,
-                            "model": settings.extraction_model,
-                            "source_url": raw.source_url,
-                            "raw_response": e.raw_response,
-                        },
-                        error=str(e)[:4000],
-                        attempts=2,
-                        last_attempt_at=datetime.now(UTC),
-                    )
-                )
+                db.add(dead_letter(raw, settings.extraction_model, str(e), e.raw_response, 2))
                 stats.dead_lettered += 1
                 stats.errors.append(f"{raw.source_url}: {e}")
                 continue
@@ -255,17 +291,11 @@ async def run_extraction(
             if result.attempts > 1:
                 stats.retried += 1
 
-            # The model is told to use canonical ids, but it can still emit a
-            # near-miss — normalizing here is what guarantees the invariant,
-            # and it routes both its unmapped list and any near-miss into the
-            # same review queue.
-            mapped, unmapped = _normalize(result.components)
-            if unmapped:
-                stats.unmapped_skills_new += await record_unmapped(db, unmapped)
+            stats.unmapped_skills_new += await persist_components(
+                db, raw, result.components, result.model
+            )
             if result.components.visa.any_flag_set:
                 stats.visa_signals_found += 1
-
-            db.add(_to_row(raw, result.components, result.model, mapped, unmapped))
             stats.extracted += 1
             # Commit per listing: a run that dies has kept everything it paid
             # for, which matters most during a long backfill.
@@ -281,6 +311,41 @@ async def run_extraction(
         stats.retried, stats.cost_usd, f" ABORTED: {stats.aborted_reason}" if stats.aborted_reason else "",
     )
     return stats
+
+
+async def persist_components(
+    db: AsyncSession, raw: RawListing, components: JobComponents, model: str
+) -> int:
+    """Write one extraction. Shared by the live and batch paths so they cannot
+    drift in what they store. Returns how many unmapped skills were new."""
+    # The model is told to use canonical ids, but it can still emit a
+    # near-miss — normalizing here is what guarantees the invariant, and it
+    # routes both its unmapped list and any near-miss into the same queue.
+    mapped, unmapped = _normalize(components)
+    new_unmapped = await record_unmapped(db, unmapped) if unmapped else 0
+    db.add(_to_row(raw, components, model, mapped, unmapped))
+    return new_unmapped
+
+
+def dead_letter(
+    raw: RawListing, model: str, error: str, raw_response: str | None, attempts: int
+) -> DeadLetter:
+    """The dead-letter row for a failed extraction. `prompt_version` in the
+    payload is load-bearing: pending_listings uses it so that a failure only
+    blocks retries at the prompt version that failed."""
+    return DeadLetter(
+        kind="extraction",
+        raw_listing_id=raw.id,
+        payload={
+            "prompt_version": PROMPT_VERSION,
+            "model": model,
+            "source_url": raw.source_url,
+            "raw_response": raw_response,
+        },
+        error=error[:4000],
+        attempts=attempts,
+        last_attempt_at=datetime.now(UTC),
+    )
 
 
 def _normalize(components: JobComponents) -> tuple[list[str], list[str]]:

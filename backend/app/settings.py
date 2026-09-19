@@ -67,6 +67,27 @@ class Settings(BaseSettings):
     # Two standing cost rules (CLAUDE.md): the cheapest token is one never sent.
     # 26% of the corpus is >90 days old and mostly filled/evergreen, and
     # aggregator snippets are truncated so they extract poorly.
+    # Batch path (CLAUDE.md rule d: batch API for backfills — half price).
+    # How often the scheduler collects finished batches and submits new work.
+    # 45, not 60: each cycle's batch reads the 1-hour prompt cache, and a read
+    # refreshes its TTL — so a cycle shorter than the TTL keeps the cache warm
+    # indefinitely, and only a cold start pays the 2x write (see batch.py).
+    extraction_interval_minutes: int = 45
+    # Most requests in one submission. The cost cap trims this further.
+    extraction_batch_max: int = 2000
+    # Per-listing cost of a *batched* extraction, used to size a batch against
+    # the cost cap before submitting (actual spend is ledgered on collection).
+    # This is the measured worst case — no cache hits — and deliberately so:
+    # a real 6-request batch on 2026-09-19 got zero cache reads (every request
+    # paid a 4,322-token cache write at 1.25x) and cost $0.0149/listing, no
+    # cheaper than live. A pre-check that assumed caching works would let a
+    # batch run to ~2x the cap before the ledger noticed. A cap that only holds
+    # when things go well isn't a cap.
+    extraction_est_batch_cost_per_listing_usd: float = 0.015
+    # Circuit breaker: above this share of failed requests, a batch is marked
+    # failed and nothing falls back to the (2x price) live path — a systematic
+    # fault like a rejected schema would otherwise re-run every listing live.
+    extraction_batch_max_error_rate: float = 0.2
     extraction_max_posting_age_days: int | None = 90
     extraction_skip_aggregators: bool = True
 

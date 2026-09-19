@@ -10,9 +10,11 @@ import logging
 from dataclasses import dataclass
 
 import anthropic
+from anthropic import transform_schema
 from anthropic.types import TextBlock
+from anthropic.types.json_output_format_param import JSONOutputFormatParam
 from anthropic.types.parsed_message import ParsedTextBlock
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from ..settings import Settings
 from .prompts import PROMPT_VERSION, system_prompt, user_prompt
@@ -44,6 +46,18 @@ class ExtractionResult:
     model: str
     prompt_version: str
     attempts: int
+
+
+def output_format_param() -> JSONOutputFormatParam:
+    """The structured-output format, built exactly as `messages.parse()` builds
+    it from `output_format=JobComponents` (TypeAdapter -> transform_schema).
+
+    The batch path can't use parse(), so it sends this dict instead — and it
+    must be byte-identical to what the live path sends, because small schema
+    differences decide whether the API compiles it at all (see schema.py).
+    """
+    schema = TypeAdapter(JobComponents).json_schema()
+    return JSONOutputFormatParam(type="json_schema", schema=transform_schema(schema))
 
 
 def build_request(

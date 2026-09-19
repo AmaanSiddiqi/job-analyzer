@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -67,6 +68,25 @@ async def _ingest_aggregators() -> None:
     log.info("Scheduled aggregator ingestion complete")
 
 
+async def _extract() -> None:
+    import anthropic
+
+    from .extraction.batch import run_batch_cycle
+
+    try:
+        async with AsyncSessionLocal() as db, anthropic.AsyncAnthropic() as client:
+            await run_batch_cycle(db, client)
+    except Exception:
+        log.exception("Scheduled extraction cycle failed")
+
+
+def llm_extraction_enabled() -> bool:
+    """Both halves are needed: the flag is the decision, the key the means.
+    Checked together so a flag flipped without a key logs why nothing runs,
+    instead of failing every hour."""
+    return get_settings().enable_llm_extraction and bool(os.getenv("ANTHROPIC_API_KEY"))
+
+
 def start(interval_hours: int = 6) -> None:
     settings = get_settings()
     jobs = 0
@@ -111,6 +131,25 @@ def start(interval_hours: int = 6) -> None:
         log.info(
             "Aggregator ingestion is disabled (ENABLE_AGGREGATOR_INGESTION unset) — not scheduled."
         )
+
+    if llm_extraction_enabled():
+        _scheduler.add_job(
+            _extract,
+            trigger=IntervalTrigger(minutes=settings.extraction_interval_minutes),
+            id="extract",
+            replace_existing=True,
+            misfire_grace_time=300,
+            # A cycle that outlasts the interval must not overlap itself.
+            max_instances=1,
+            coalesce=True,
+        )
+        jobs += 1
+    elif settings.enable_llm_extraction:
+        log.warning(
+            "ENABLE_LLM_EXTRACTION is set but ANTHROPIC_API_KEY is not — extraction not scheduled."
+        )
+    else:
+        log.info("LLM extraction is disabled (ENABLE_LLM_EXTRACTION unset) — not scheduled.")
 
     if not jobs:
         log.info("No ingestion sources enabled — scheduler not started.")
