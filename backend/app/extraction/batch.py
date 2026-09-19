@@ -54,7 +54,7 @@ from .service import dead_letter, pending_listings, persist_components
 
 log = logging.getLogger(__name__)
 
-# Arbitrary but fixed: serializes submitters (the hourly job and the admin
+# Arbitrary but fixed: serializes submitters (the scheduled job and the admin
 # endpoint) so two of them can't select the same pending postings at once.
 _SUBMIT_LOCK_KEY = 7_311_901
 
