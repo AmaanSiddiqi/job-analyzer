@@ -35,6 +35,7 @@ BATCH_DISCOUNT = Decimal("0.5")
 # happens if you only look at `usage.input_tokens`) understates the true cost of
 # every cached call, and this module exists to not understate spend.
 CACHE_WRITE_MULTIPLIER = Decimal("1.25")  # 5-minute ephemeral TTL
+CACHE_WRITE_1H_MULTIPLIER = Decimal("2.0")  # 1-hour TTL, used by the batch path
 CACHE_READ_MULTIPLIER = Decimal("0.1")
 
 
@@ -49,6 +50,7 @@ def price_call(
     *,
     cache_read_tokens: int = 0,
     cache_write_tokens: int = 0,
+    cache_write_1h_tokens: int = 0,
     batch: bool = False,
 ) -> Decimal:
     """USD cost of one call. Unknown models price at the most expensive known
@@ -56,6 +58,8 @@ def price_call(
 
     `input_tokens` from the API excludes anything served from the prompt cache,
     so the cache counts must be passed separately or cached calls look free.
+    `cache_write_tokens` is the 5-minute-TTL share only; pass 1-hour writes as
+    `cache_write_1h_tokens` (use cache_write_split for a raw Usage).
     """
     if model in _PRICES:
         in_rate, out_rate = _PRICES[model]
@@ -65,6 +69,7 @@ def price_call(
     billable_input = (
         Decimal(input_tokens)
         + Decimal(cache_write_tokens) * CACHE_WRITE_MULTIPLIER
+        + Decimal(cache_write_1h_tokens) * CACHE_WRITE_1H_MULTIPLIER
         + Decimal(cache_read_tokens) * CACHE_READ_MULTIPLIER
     )
     cost = (billable_input * in_rate + Decimal(output_tokens) * out_rate) / _MILLION
@@ -104,6 +109,7 @@ async def record_usage(
     output_tokens: int,
     cache_read_tokens: int = 0,
     cache_write_tokens: int = 0,
+    cache_write_1h_tokens: int = 0,
     batch: bool = False,
 ) -> Decimal:
     """Append one call to the ledger and return its cost.
@@ -117,6 +123,7 @@ async def record_usage(
         output_tokens,
         cache_read_tokens=cache_read_tokens,
         cache_write_tokens=cache_write_tokens,
+        cache_write_1h_tokens=cache_write_1h_tokens,
         batch=batch,
     )
     db.add(
@@ -131,3 +138,15 @@ async def record_usage(
         )
     )
     return cost
+
+
+def cache_write_split(usage: object) -> tuple[int, int]:
+    """(5-minute, 1-hour) cache-write tokens from an API Usage object.
+
+    The two TTLs bill differently (1.25x vs 2x) but `cache_creation_input_tokens`
+    is their sum, so pricing it as one number undercounts 1-hour writes.
+    """
+    total = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    detail = getattr(usage, "cache_creation", None)
+    one_hour = (getattr(detail, "ephemeral_1h_input_tokens", 0) or 0) if detail else 0
+    return total - one_hour, one_hour

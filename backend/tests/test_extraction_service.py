@@ -282,37 +282,71 @@ async def test_stored_unmapped_reflects_normalization_not_the_model_guess():
     assert component.skills_unmapped == ["rustlang"]  # only the true miss remains
 
 
-class TestPendingListingsCostRules:
-    """The two standing cost rules live in the query, so assert on the SQL:
-    the cheapest token is the one never sent."""
+def _compiled(stmt) -> str:
+    from sqlalchemy.dialects import postgresql
 
-    def _sql(self, **over) -> str:
-        import inspect
+    return str(stmt.compile(dialect=postgresql.dialect())).lower()
 
-        from app.extraction.service import pending_listings
 
-        # pending_listings is async and builds its statement inline; rebuild the
-        # same statement here via its source-of-truth settings to inspect it.
-        src = inspect.getsource(pending_listings)
-        assert "notin_(AGGREGATOR_SOURCES)" in src
-        assert "posted_at" in src
-        return src
+async def _pending_sql(**settings_over) -> str:
+    """The SQL pending_listings actually executes, captured from the session.
 
-    def test_query_skips_aggregators_and_stale_postings(self):
-        src = self._sql()
-        assert "extraction_skip_aggregators" in src
-        assert "extraction_max_posting_age_days" in src
+    These used to grep the function's *source text* — which broke on a pure
+    refactor, and would have kept passing if the behaviour broke as long as
+    the words survived. Compiling the real statement tests the query itself.
+    """
+    from app.extraction.service import pending_listings
 
-    def test_null_posted_at_is_kept(self):
+    db = _db()
+    await pending_listings(db, 50, _settings(**settings_over))
+    return _compiled(db.execute.call_args.args[0])
+
+
+class TestPendingListings:
+    """What gets extracted is decided entirely by this query — and every row it
+    returns is money spent, so each rule is asserted on the compiled SQL."""
+
+    async def test_one_row_per_posting_the_newest_version(self):
+        """raw_listings is append-only; without DISTINCT ON the first backfill
+        would have extracted 2,521 rows for 1,782 postings (29% waste)."""
+        sql = await _pending_sql()
+        assert "distinct on (raw_listings.source_url)" in sql
+        assert "raw_listings.fetched_at desc" in sql
+
+    async def test_skips_aggregators(self):
+        sql = await _pending_sql()
+        assert "raw_listings.source_type not in" in sql
+
+    async def test_aggregators_included_when_rule_disabled(self):
+        sql = await _pending_sql(extraction_skip_aggregators=False)
+        assert "not in" not in sql
+
+    async def test_skips_stale_postings_but_keeps_undated_ones(self):
         """A source that returns no date must not have its whole feed dropped."""
-        src = self._sql()
-        assert "RawListing.posted_at.is_(None)" in src
+        sql = await _pending_sql()
+        assert "raw_listings.posted_at is null or raw_listings.posted_at >=" in sql
 
-    def test_ordered_newest_first(self):
-        """When a run is capped, the budget should have gone to listings users
-        would actually see."""
-        src = self._sql()
-        assert "posted_at.desc()" in src
+    async def test_skips_postings_already_extracted_at_this_prompt_version(self):
+        sql = await _pending_sql()
+        assert "listing_components.prompt_version" in sql
+
+    async def test_skips_dead_lettered_postings(self):
+        """Otherwise a posting that always fails is retried — and billed — on
+        every run forever, and the requeue endpoint does nothing."""
+        sql = await _pending_sql()
+        assert "dead_letters.resolved_at is null" in sql
+        assert "dead_letters.kind" in sql
+
+    async def test_skips_postings_in_an_uncollected_batch(self):
+        """Or the next submission pays for them a second time."""
+        sql = await _pending_sql()
+        assert "extraction_batches.status" in sql
+        assert "any (extraction_batches.raw_listing_ids)" in sql
+
+    async def test_ordered_newest_first(self):
+        """When a run is capped, the budget went to listings users would see."""
+        sql = await _pending_sql()
+        assert "order by raw_listings.posted_at desc nulls last" in sql
 
 
 class TestEligibilityPersistence:

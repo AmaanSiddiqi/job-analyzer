@@ -324,3 +324,43 @@ class UnmappedSkill(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))
 
     __table_args__ = (Index("ix_unmapped_skills_status", "status"),)
+
+
+class ExtractionBatch(Base):
+    """One Message Batches API submission of extraction requests.
+
+    Tracked in the DB rather than in memory so a batch outlives the process that
+    submitted it: batches take minutes to hours, and a deploy in between must not
+    orphan results we have already paid for (CLAUDE.md: DB-tracked resumable
+    batches). `raw_listing_ids` is what keeps an in-flight listing out of the next
+    submission, so nothing is ever paid for twice.
+    """
+
+    __tablename__ = "extraction_batches"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    anthropic_batch_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    # submitted -> collected, or failed (circuit breaker tripped; see batch.py).
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="submitted")
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt_version: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_listing_ids: Mapped[list[int]] = mapped_column(ARRAY(BigInteger), nullable=False)
+    request_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    estimated_cost_usd: Mapped[float] = mapped_column(Numeric(10, 4), nullable=False)
+    submitted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    collected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    succeeded: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    fell_back_to_live: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    dead_lettered: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        # The scheduler's every-tick question is "which batches are still open".
+        Index(
+            "ix_extraction_batches_open",
+            "status",
+            postgresql_where=text("status = 'submitted'"),
+        ),
+    )
