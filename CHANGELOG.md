@@ -3,6 +3,51 @@
 All notable changes to this project, organized by phase (see CLAUDE.md for the
 phase plan). Dates are when the phase closed, not when it started.
 
+## P1 follow-ups — extraction goes live (2026-09-19)
+
+The pipeline P1 built could not yet run in production: extraction was live-only
+through an admin endpoint, nothing scheduled it, and the batch path the spec
+requires for backfills didn't exist. PRs
+[#15](https://github.com/AmaanSiddiqi/job-analyzer/pull/15) and
+[#16](https://github.com/AmaanSiddiqi/job-analyzer/pull/16).
+
+### Added
+- **Batch extraction** (`app/extraction/batch.py`, migration `0007`) at
+  **$0.0067/posting** — half the live price — scheduled every 45 minutes behind
+  `ENABLE_LLM_EXTRACTION`. Submissions are tracked in `extraction_batches` so a
+  deploy can't orphan paid-for results; failed results get one live retry then
+  dead-letter; a circuit breaker stops a systematically failing batch from being
+  retried live at double the price. Admin `POST /extract/batch` and
+  `/extract/collect` for supervised runs.
+- **Prompt-cache warm-up before every batch.** Measured: concurrent batch
+  requests never find the cache warm (0/6 reads), which made batch no cheaper
+  than live. One live request with the identical prefix and a 1-hour TTL turned
+  that into 5/5 reads.
+
+### Fixed
+- **Duplicate extraction of edited postings** — `raw_listings` is append-only,
+  and every version was selected: 2,521 rows for 1,782 postings, 29% waste.
+- **Endless paid retries** — a posting that always failed was retried and billed
+  every run, because dead letters were ignored; the requeue endpoint was a no-op.
+- **A cost cap that only held when caching worked** — batches are now sized
+  against the measured no-cache cost before submission.
+- **The coverage metric could never pass the DoD** — it divided by every raw
+  row, including 26k aggregator rows the pipeline never extracts; a finished
+  backfill would have read ~6% against ≥90%. It now measures eligible postings.
+- **One bad batch id would wedge extraction permanently**, retried every cycle.
+- **1-hour cache writes** were priced at 1.25x instead of 2x.
+- **Skill trend chart** plotted our ingestion history, not the market: it
+  bucketed by scrape date, so the LinkedIn shutdown read as an outage and the
+  board backfill as a spike. It now buckets by date posted and plots each
+  skill's *share* of that week's postings, which survives the source change.
+- **Top skills chart** labelled only every other bar.
+- **Corrected published eval figures:** Haiku 4.5 is **2x** Sonnet's per-listing
+  cost, not 3x (the 3x was its per-token discount), and the reason it never
+  caches is a 3,337-token prefix under its **4,096**-token minimum — not the
+  2,048 first cited. The eval report now computes the ratio instead of stating it.
+- Tests that grepped function source text replaced with assertions on the
+  compiled SQL.
+
 ## P1 — Sources & extraction (closed 2026-09-17)
 
 Data flowing again and a structured-extraction pipeline that beats the frozen

@@ -103,7 +103,7 @@ async def start_batch(
     The backfill path, and the way to resume after the circuit breaker trips:
     this forces past the breaker, on the assumption that a person has looked at
     why the last batch failed. Submission returns in seconds; results are
-    collected by the hourly job, or by POST /extract/collect.
+    collected by the scheduled job (every 45 min), or by POST /extract/collect.
     """
     _require_extraction_enabled()
     async with AsyncSessionLocal() as db, anthropic.AsyncAnthropic() as client:
@@ -138,7 +138,7 @@ class BatchesCollected(BaseModel):
 )
 @limiter.limit("6/minute")
 async def collect(request: Request) -> BatchesCollected:
-    """Collect finished batches now instead of waiting for the hourly job.
+    """Collect finished batches now instead of waiting for the scheduled job.
 
     Can spend money: failed results get one live retry each. The circuit
     breaker bounds that — a batch with a high failure rate retries nothing.

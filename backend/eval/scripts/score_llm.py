@@ -281,12 +281,24 @@ def render(results: list[Scored], baseline_raw: Scored, gold_path: Path) -> str:
             + ".** Those rows were predicted before `price_call` accounted for "
             "cached prompt tokens, which the API reports separately from "
             "`input_tokens` — so a cached read was billed at zero. The system "
-            "prompt is 2,299 Sonnet tokens and is cache-read on nearly every "
-            "call, which is about **+$0.0007/listing** (~5%) not shown above. "
+            "prefix is 4,322 Sonnet tokens (system prompt, skill list *and* the "
+            "structured-output schema, which the API injects before the cache "
+            "breakpoint) and is cache-read on nearly every call, which is about "
+            "**+$0.0013/listing** (~9%) not shown above. "
             "Rows predicted after the fix carry the real number; the table was "
-            "not re-run at a cost of several dollars to correct a 5% figure "
+            "not re-run at a cost of several dollars to correct a ~9% figure "
             "whose direction and size are both known.",
         ]
+
+    by_name = {r.label.split(" ")[0]: r for r in llm}
+    haiku, sonnet = by_name.get("haiku-nothinking"), by_name.get("sonnet-nothinking")
+    # Computed, not written in: an earlier hardcoded "3x" here was wrong (it was
+    # ~2x), borrowed from Haiku being 3x cheaper *per token*.
+    haiku_ratio = (
+        f"{(haiku.cost_usd / haiku.n) / (sonnet.cost_usd / sonnet.n):.1f}x"
+        if haiku and sonnet and haiku.n and sonnet.n and sonnet.cost_usd
+        else "n/a"
+    )
 
     lines += [
         "",
@@ -301,19 +313,20 @@ def render(results: list[Scored], baseline_raw: Scored, gold_path: Path) -> str:
         "That ordering is not a typo and it is not about the token rates. Two "
         "things stack:",
         "",
-        "1. **It gets no prompt caching.** Our system prompt is 2,299 tokens to "
-        "Sonnet's tokenizer but only **1,629** to Haiku's — under Haiku 4.5's "
-        "2,048-token minimum cacheable prefix. The `cache_control` marker is "
-        "silently inert, so Haiku re-pays for the entire instruction block and "
-        "skill list on every single call while Sonnet reads it from cache.",
+        "1. **It gets no prompt caching.** The cached prefix — system prompt, "
+        "skill list and the injected output schema — measures 4,327 tokens to "
+        "Sonnet's tokenizer but only **3,337** to Haiku's, under Haiku 4.5's "
+        "**4,096-token** minimum cacheable prefix (Sonnet 5's is 1,024). The "
+        "`cache_control` marker is silently inert, so Haiku re-pays for the "
+        "entire prefix on every call while Sonnet reads it from cache.",
         "2. **It degenerates under the constrained grammar.** Six listings "
         "failed outright with truncated JSON after the model emitted runs like "
         "`999999999999...` and `012345678901...` into a numeric field until it "
         "hit `max_tokens`. Those runs are billed.",
         "",
-        "Net: 3x the cost per listing at **-0.086 F1**. Raising the taxonomy "
-        "past ~2,048 tokens of system prompt would fix the caching half, but "
-        "the quality gap is the part that matters and it would not close.",
+        f"Net: **{haiku_ratio}** the cost per listing at **-0.086 F1**. "
+        "Growing the prefix past 4,096 Haiku tokens would fix the caching half, "
+        "but the quality gap is the part that matters and it would not close.",
         "",
         "### Thinking on vs off is a genuine null result",
         "",
