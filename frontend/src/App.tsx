@@ -279,7 +279,7 @@ export default function App() {
 
               <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 lg:col-span-2">
                 <h2 className="text-base font-semibold text-gray-800 mb-1">Skill demand over time</h2>
-                <p className="text-xs text-gray-400 mb-4">Weekly posting count for top skills — last 8 weeks</p>
+                <p className="text-xs text-gray-400 mb-4">Share of each week's postings that ask for the skill, by date posted — last 8 weeks</p>
                 <SkillHistoryChart series={history} />
               </section>
             </div>

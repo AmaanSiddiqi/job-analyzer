@@ -13,7 +13,12 @@ const PALETTE = [
   "#3b82f6", "#8b5cf6", "#ec4899", "#14b8a6",
 ];
 
-function buildChartData(series: SkillHistorySeries[]) {
+type ChartRow = Record<string, string | number>;
+
+// Plots each skill's *share* of that week's postings rather than a raw count.
+// Counts jumped and collapsed when the source changed from LinkedIn to company
+// boards (different volume, not different demand); a percentage survives that.
+function buildChartData(series: SkillHistorySeries[]): ChartRow[] {
   const weekSet = new Set<string>();
   for (const s of series) {
     for (const pt of s.data) weekSet.add(pt.week);
@@ -21,12 +26,18 @@ function buildChartData(series: SkillHistorySeries[]) {
   const weeks = [...weekSet].sort();
 
   return weeks.map((week) => {
-    const row: Record<string, string | number> = {
-      week: new Date(week).toLocaleDateString("en-CA", { month: "short", day: "numeric" }),
+    const row: ChartRow = {
+      week: new Date(week).toLocaleDateString("en-CA", {
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      }),
     };
     for (const s of series) {
       const pt = s.data.find((d) => d.week === week);
-      row[s.skill] = pt?.count ?? 0;
+      row[s.skill] = pt ? Math.round(pt.share * 1000) / 10 : 0;
+      row[`${s.skill}__n`] = pt?.count ?? 0;
+      if (pt) row.__total = pt.total;
     }
     return row;
   });
@@ -36,7 +47,7 @@ export default function SkillHistoryChart({ series }: Props) {
   if (!series.length) {
     return (
       <div className="flex items-center justify-center h-64 text-slate-400 text-sm">
-        Not enough historical data yet — check back after a few scrape cycles.
+        Not enough historical data yet — check back after a few ingest cycles.
       </div>
     );
   }
@@ -57,7 +68,8 @@ export default function SkillHistoryChart({ series }: Props) {
           tick={{ fontSize: 11, fill: "#94a3b8" }}
           axisLine={false}
           tickLine={false}
-          width={28}
+          width={36}
+          tickFormatter={(v: number) => `${v}%`}
         />
         <Tooltip
           contentStyle={{
@@ -66,7 +78,10 @@ export default function SkillHistoryChart({ series }: Props) {
             border: "1px solid #e2e8f0",
             boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
           }}
-          formatter={(v: number, name: string) => [v, name]}
+          formatter={(v: number, name: string, item) => {
+            const row = item.payload as ChartRow;
+            return [`${v}% (${row[`${name}__n`]} of ${row.__total ?? "?"})`, name];
+          }}
         />
         <Legend
           wrapperStyle={{ fontSize: 12, paddingTop: 8 }}

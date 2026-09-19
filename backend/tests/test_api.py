@@ -109,3 +109,27 @@ async def test_create_job_requires_admin_key(client, monkeypatch):
     monkeypatch.setenv("ADMIN_API_KEY", "test-key")
     r = await client.post("/jobs", json={})
     assert r.status_code == 401
+
+
+async def test_skill_history_reports_share_of_each_weeks_postings(client, mock_db):
+    """The chart plots share, not count: counts are not comparable across the
+    LinkedIn -> board source change. Row values mirror the verified scratch-DB
+    run: 9 of 30 postings in the board-backfill week ask for python."""
+    from datetime import date
+    from types import SimpleNamespace
+
+    from tests.conftest import _MockResult
+
+    mock_db.execute.return_value = _MockResult(
+        rows=[
+            SimpleNamespace(week=date(2026, 8, 24), skill="python", n=9, total=30),
+            SimpleNamespace(week=date(2026, 8, 31), skill="python", n=3, total=8),
+        ]
+    )
+    r = await client.get("/trends/skills/history", params={"skills": ["python"]})
+    assert r.status_code == 200
+    points = r.json()["series"][0]["data"]
+    assert [(p["count"], p["total"], p["share"]) for p in points] == [
+        (9, 30, 0.3),
+        (3, 8, 0.375),
+    ]

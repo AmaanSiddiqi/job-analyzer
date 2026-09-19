@@ -21,7 +21,10 @@ export default function SkillsChart({ data }: Props) {
           type="category"
           dataKey="skill"
           width={130}
-          tick={{ fontSize: 12, fill: "#475569" }}
+          // Recharts drops category labels it thinks won't fit, which left every
+          // other bar unlabelled on the live site. Force all of them.
+          interval={0}
+          tick={{ fontSize: 11, fill: "#475569" }}
           axisLine={false}
           tickLine={false}
         />
