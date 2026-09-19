@@ -81,3 +81,29 @@ class TestLedger:
         assert row.run_id == "run-1"
         assert row.cost_usd == cost
         assert row.input_tokens == 5_000
+
+
+class TestCachePricing:
+    """Cached reads are billed at a tenth of the input rate and cache writes at
+    1.25x. `usage.input_tokens` excludes both, so ignoring them reports cached
+    calls as cheaper than they are — the direction this module must never err."""
+
+    def test_cache_reads_are_not_free(self):
+        plain = price_call("claude-sonnet-5", 1_000, 500)
+        cached = price_call("claude-sonnet-5", 1_000, 500, cache_read_tokens=10_000)
+        assert cached > plain
+        # 10k read tokens at 0.1x the $3/MTok input rate = $0.003
+        assert cached - plain == Decimal("0.003")
+
+    def test_cache_writes_cost_a_premium(self):
+        plain = price_call("claude-sonnet-5", 1_000, 500)
+        written = price_call("claude-sonnet-5", 1_000, 500, cache_write_tokens=10_000)
+        # 10k write tokens at 1.25x the $3/MTok input rate = $0.0375
+        assert written - plain == Decimal("0.0375")
+
+    def test_batch_discount_applies_to_cache_components_too(self):
+        live = price_call("claude-sonnet-5", 1_000, 500, cache_read_tokens=10_000)
+        batched = price_call(
+            "claude-sonnet-5", 1_000, 500, cache_read_tokens=10_000, batch=True
+        )
+        assert batched == live * Decimal("0.5")

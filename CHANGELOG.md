@@ -3,6 +3,69 @@
 All notable changes to this project, organized by phase (see CLAUDE.md for the
 phase plan). Dates are when the phase closed, not when it started.
 
+## P1 — Sources & extraction (closed 2026-09-17)
+
+Data flowing again and a structured-extraction pipeline that beats the frozen
+spaCy baseline. PRs [#5](https://github.com/AmaanSiddiqi/job-analyzer/pull/5)–[#13](https://github.com/AmaanSiddiqi/job-analyzer/pull/13),
+plus the schema fix on `p1/fix-structured-output-grammar`.
+Full phase report: [reports/p1_report.md](reports/p1_report.md).
+Eval: [reports/extraction_eval_llm.md](reports/extraction_eval_llm.md).
+
+### Added
+- **Board-JSON ingestion** for Greenhouse/Lever/Ashby driven by
+  `backend/sources/companies.yaml` (69 identity-verified boards), behind
+  `ENABLE_BOARD_INGESTION`. Ended the data freeze: corpus 5,862 → 7,193.
+- **Adzuna/Jooble ingestion + aggregator-driven company discovery** — new boards
+  are proposed into a review queue, never auto-added.
+- **`taxonomy/skills.yaml`** — 201 canonical ids, 388 aliases, seeded from
+  `_SKILLS_VOCAB`. Raised gold-set coverage 33% → 70.9%, which reframed the
+  baseline's 0.312 recall as largely a vocabulary gap rather than a model one.
+- **LLM extraction pipeline** (`app/extraction/`) — schema-constrained parsing
+  into `listing_components`, eligibility and visa signals with verbatim
+  evidence enforced by validators, per-run cost cap checked *before* each call,
+  dead-letters, prompt versioning, resumable per-listing commits.
+- **Extraction eval** — three configs × 150 listings, cached predictions so the
+  report regenerates for free and CI can score without an API key.
+
+### Changed
+- **The product wedge moved from visa signals to eligibility-aware matching**,
+  on measured evidence: sponsorship appears in 0.2% of 1,400 real Canadian
+  descriptions, while experience requirements gate 27.9%. Visa signals stay as
+  three cheap columns. See CLAUDE.md and `V2.md`.
+- **`EXTRACTION_THINKING` defaults false on evidence, not assumption** — thinking
+  on vs off measured identical in cost and within 0.002 F1.
+- Extraction prompt at **v3**: teaches the sentinel conventions the schema
+  requires and carries the ISO-4217/3166/639-1 semantics that used to live in
+  `description=` strings.
+
+### Fixed
+- **The extraction pipeline could not make a single successful call** — the API
+  rejected `JobComponents` with `400 "Schema is too complex."` Root cause was
+  **field order**: the same fields compile when nested models are declared first
+  and fail when they trail or interleave, at a byte-identical schema size.
+- **Haiku rejected every request** (`does not support the effort parameter`),
+  which would have reported the cheaper model at F1 0.000 rather than as
+  untested.
+- **One bad row aborted an entire paid eval run** via `asyncio.gather`, twice,
+  while still exiting 0.
+- **Thinking was never actually enabled** in the "thinking on" config; a test
+  asserted the broken behaviour and so preserved it.
+- **Cached prompt tokens were billed at zero** by `price_call`, understating
+  spend in the module that enforces the cost cap.
+- **Visa-signal yield reported 99%** against a corpus rate under 1% — the scorer
+  tested `is not None` against a schema that now returns `"not_stated"`.
+- **The prediction cache ignored `prompt_version`**, which would have mixed two
+  prompts into one eval report.
+- Per-segment Canada filter — "Amsterdam | Remote" and "Remote, KSA" were being
+  kept; validated against 1,400 live production listings.
+- Discovery ranking now sorts by Canadian-role count, not raw occurrences, which
+  had sorted toward large US job-spammers.
+
+### Security
+- Tests were loading the developer's real `.env`, putting a live API key into
+  mocked request URLs and making real network calls. An autouse fixture now
+  nulls `Settings.model_config["env_file"]` (suite 22.6s → 0.9s).
+
 ## P0 — Audit & foundations (closed 2026-08-16)
 
 The groundwork phase: no product features, but everything needed to build them

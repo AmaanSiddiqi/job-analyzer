@@ -9,17 +9,17 @@ from app.extraction.schema import (
     CompPeriod,
     EligibilitySignals,
     JobComponents,
+    Location,
     RemotePolicy,
     Seniority,
+    Stated,
     VisaSignals,
 )
 
 
 def _minimal(**overrides):
     base = {
-        "title_raw": "Software Engineer",
         "title_normalized": "Software Engineer",
-        "company_raw": "Acme Inc.",
         "company_canonical": "Acme",
     }
     base.update(overrides)
@@ -27,7 +27,7 @@ def _minimal(**overrides):
 
 
 class TestVisaSignals:
-    def test_all_null_needs_no_evidence(self):
+    def test_not_stated_needs_no_evidence(self):
         """The common case: the posting says nothing about work authorization."""
         visa = VisaSignals()
         assert visa.any_flag_set is False
@@ -43,33 +43,49 @@ class TestVisaSignals:
     )
     def test_any_flag_without_evidence_is_rejected(self, flag):
         with pytest.raises(ValidationError, match="verbatim evidence"):
-            VisaSignals(**{flag: True})
+            VisaSignals(**{flag: Stated.YES})
 
-    def test_false_also_requires_evidence(self):
-        """False is a claim about the posting too — "says it does NOT sponsor"
-        needs a quote just as much as True does."""
+    def test_no_also_requires_evidence(self):
+        """NO is a claim about the posting too — "says it does NOT sponsor"
+        needs a quote just as much as YES does."""
         with pytest.raises(ValidationError, match="verbatim evidence"):
-            VisaSignals(sponsorship_available=False)
+            VisaSignals(sponsorship_available=Stated.NO)
 
     def test_blank_evidence_does_not_satisfy_the_rule(self):
         with pytest.raises(ValidationError, match="verbatim evidence"):
-            VisaSignals(sponsorship_available=True, evidence=["", "   "])
+            VisaSignals(sponsorship_available=Stated.YES, evidence=["", "   "])
 
     def test_flag_with_evidence_is_accepted(self):
         visa = VisaSignals(
-            sponsorship_available=True,
+            sponsorship_available=Stated.YES,
             evidence=["We are able to sponsor work permits for this role."],
         )
         assert visa.any_flag_set is True
 
     def test_extra_fields_rejected(self):
         with pytest.raises(ValidationError):
-            VisaSignals(sponsorship_maybe=True)  # type: ignore[call-arg]
+            VisaSignals(sponsorship_maybe=Stated.YES)  # type: ignore[call-arg]
+
+
+class TestStated:
+    """The enum that replaced `bool | None` to stay inside the API's union
+    ceiling — `to_bool` is what keeps the DB columns genuinely tri-state."""
+
+    def test_round_trips_to_the_column_values(self):
+        assert Stated.YES.to_bool() is True
+        assert Stated.NO.to_bool() is False
+        assert Stated.NOT_STATED.to_bool() is None
+
+    def test_not_stated_is_the_default_everywhere(self):
+        assert VisaSignals().sponsorship_available is Stated.NOT_STATED
+        assert EligibilitySignals().degree_required is Stated.NOT_STATED
 
 
 class TestCompensation:
     def test_empty_is_valid(self):
-        assert Compensation().min_amount is None
+        # 0 is the "unstated" sentinel: a union here would cost schema budget.
+        assert Compensation().min_amount == 0.0
+        assert Compensation().has_amount is False
 
     def test_amount_without_currency_rejected(self):
         """A bare number is ambiguous between CAD and USD in Canadian postings
@@ -91,7 +107,7 @@ class TestCompensation:
 
     def test_currency_alone_is_fine(self):
         # "salary in CAD" with no figures shouldn't fail
-        assert Compensation(currency="CAD").min_amount is None
+        assert Compensation(currency="CAD").has_amount is False
 
 
 class TestJobComponents:
@@ -122,8 +138,24 @@ class TestJobComponents:
         """Structured outputs need a JSON schema — if this raises, the API call
         cannot be made at all."""
         schema = JobComponents.model_json_schema()
-        assert "title_raw" in schema["properties"]
+        assert "title_normalized" in schema["properties"]
         assert "visa" in schema["properties"]
+
+    def test_fields_that_duplicate_raw_listings_are_absent(self):
+        """Regression guard on schema budget. These four are known from the
+        board API; asking the model to echo them is what pushed the schema past
+        the API's complexity ceiling, and it returned worse values than the
+        source. `_to_row` fills the columns from the raw row instead."""
+        props = JobComponents.model_json_schema()["properties"]
+        for dropped in ("title_raw", "company_raw", "location_raw", "posted_at"):
+            assert dropped not in props
+
+    def test_geo_is_nested_to_save_top_level_width(self):
+        """city/region/country as three top-level scalars does not compile —
+        see the module docstring in schema.py for the measurement."""
+        c = _minimal(location=Location(city="Toronto", region="ON", country="CA"))
+        assert c.location.city == "Toronto"
+        assert "location" in JobComponents.model_json_schema()["properties"]
 
 
 class TestEligibilitySignals:
@@ -151,7 +183,9 @@ class TestEligibilitySignals:
     def test_booleans_do_not_require_evidence(self):
         """Lower stakes than the experience number, and requiring quotes for
         every boolean would push the model to fabricate them."""
-        e = EligibilitySignals(is_new_grad_friendly=True, french_required=False)
+        e = EligibilitySignals(
+            is_new_grad_friendly=Stated.YES, french_required=Stated.NO
+        )
         assert e.any_gate_set is True
 
     @pytest.mark.parametrize("years", [-1, 41])
@@ -168,13 +202,15 @@ class TestEligibilitySignals:
 
     def test_extra_fields_rejected(self):
         with pytest.raises(ValidationError):
-            EligibilitySignals(vibes_required=True)  # type: ignore[call-arg]
+            EligibilitySignals(vibes_required=Stated.YES)  # type: ignore[call-arg]
 
 
 def test_job_components_carries_eligibility():
     c = _minimal(
         eligibility=EligibilitySignals(
-            min_years_experience=2, evidence=["2+ years experience"], is_new_grad_friendly=True
+            min_years_experience=2,
+            evidence=["2+ years experience"],
+            is_new_grad_friendly=Stated.YES,
         )
     )
     assert c.eligibility.min_years_experience == 2

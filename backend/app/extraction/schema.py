@@ -9,11 +9,49 @@ Design rules that matter more than the field list:
     eligibility especially — a wrong "5+ years required" wrongly excludes a user
     from a role they could have got, which is the failure that costs them most.
   * Claims that drive ranking (the experience requirement, any visa flag) must
-    be backed by verbatim evidence from the posting — enforced by validators
+    be backed by verbatim evidence from the posting — enforced by the validators
     below, not merely requested in the prompt.
+
+**The shape here is dictated by two hard, measured API limits.** Both were found
+by bisecting against the real API, not from docs:
+
+  1. **Field order decides whether the schema compiles at all.** The same
+     fourteen fields compile when the four nested models are declared first and
+     are rejected with `400 "Schema is too complex."` when they come last or sit
+     interleaved among the scalars — at a byte-identical 3,472-char schema
+     either way. Size is therefore not the constraint people assume it is: a
+     3,472-char schema compiles while a 3,459-char one with the same fields in a
+     worse order does not. Two related limits, also measured: unions are
+     expensive (20 *required* fields compile, but 12 *optional* ones — `X | None`,
+     which renders as `anyOf` — fail with `400 "Grammar compilation timed out."`,
+     ceiling ~11 across the whole schema), and folding related scalars into a
+     nested model buys top-level width, which is why city/region/country live in
+     `Location`.
+  2. Long `description=` text and class docstrings are serialized into the
+     schema too, so per-field semantics live in `prompts.py` instead — where
+     they cost (cached) prompt tokens rather than schema budget. This is not a
+     style preference: descriptions and docstrings alone were 449 chars here,
+     and with them the schema was rejected while the identical field shape
+     without them compiled. Anything explanatory in this file must be a `#`
+     comment, never a docstring or a `description=`.
+
+So tri-state fields use the `Stated` enum rather than `bool | None`: a required
+enum costs no union, reads more clearly to the model ("not_stated" beats null),
+and carries the same three-way meaning. Optional strings use `""` and optional
+amounts use `0`, converted back to real NULLs at the service boundary — the
+database columns stay properly nullable. Only `min_years_experience` keeps a
+real union, because it is the field the product ranks on and null-vs-zero is a
+distinction worth spending the budget to keep explicit.
+
+**Four fields the model used to return are gone**: `title_raw`, `company_raw`,
+`location_raw` and `posted_at`. Each duplicated a column `raw_listings` already
+holds straight from the board API, so asking for them spent schema budget and
+output tokens to produce a *less* reliable copy — a model paraphrases a title,
+the API does not. `_to_row` fills those columns from the raw row instead.
+
+Comments like this one are free: they never reach the wire.
 """
 
-from datetime import date
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -40,88 +78,67 @@ class CompPeriod(StrEnum):
     YEAR = "year"
     MONTH = "month"
     HOUR = "hour"
+    UNKNOWN = "unknown"
+
+
+# Three-way answer for "does the posting say X?" — replaces `bool | None`.
+# NOT_STATED is the common case and the safe default: it means the posting does
+# not address the question, which is different from NO (it addresses it and the
+# answer is negative). A docstring here would be serialized into the schema as a
+# `description`; a comment is free.
+class Stated(StrEnum):
+    YES = "yes"
+    NO = "no"
+    NOT_STATED = "not_stated"
+
+    def to_bool(self) -> bool | None:
+        """None for NOT_STATED, so the DB keeps a true NULL."""
+        return {Stated.YES: True, Stated.NO: False}.get(self)
 
 
 class Compensation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    min_amount: float | None = Field(
-        None, description="Lower bound as stated. None if the posting gives no figure."
-    )
-    max_amount: float | None = Field(
-        None, description="Upper bound as stated. None if the posting gives no figure."
-    )
-    currency: str | None = Field(
-        None, description="ISO-4217 code, e.g. CAD, USD. None if not stated."
-    )
-    period: CompPeriod | None = Field(
-        None, description="Whether the figures are per year, month, or hour."
-    )
-    is_estimated: bool = Field(
-        False,
-        description=(
-            "True only when the posting itself labels the range as an estimate. "
-            "Never infer a range the posting does not state."
-        ),
-    )
+    # 0 means "the posting states no figure" — a $0 salary is meaningless, so
+    # the sentinel is unambiguous and costs no union budget.
+    min_amount: float = 0.0
+    max_amount: float = 0.0
+    currency: str = ""
+    period: CompPeriod = CompPeriod.UNKNOWN
+    is_estimated: bool = False
+
+    @property
+    def has_amount(self) -> bool:
+        return self.min_amount > 0 or self.max_amount > 0
 
     @model_validator(mode="after")
-    def _no_currency_without_amount(self) -> "Compensation":
-        if (self.min_amount is not None or self.max_amount is not None) and not self.currency:
-            # A bare number with no currency is unusable downstream (and
-            # ambiguous between CAD and USD in Canadian postings).
+    def _sane_amounts(self) -> "Compensation":
+        if self.has_amount and not self.currency:
+            # A bare number is ambiguous between CAD and USD in Canadian
+            # postings, and unusable downstream.
             raise ValueError("compensation amounts require a currency")
-        if (
-            self.min_amount is not None
-            and self.max_amount is not None
-            and self.min_amount > self.max_amount
-        ):
+        if self.min_amount > 0 and self.max_amount > 0 and self.min_amount > self.max_amount:
             raise ValueError("compensation min_amount exceeds max_amount")
         return self
 
 
+# Tri-state throughout: None = the posting doesn't say, which is different from
+# False = the posting says no. Demoted from flagship on measured evidence (these
+# fire on under 1% of Canadian postings — see CLAUDE.md) but kept, because the
+# cases where citizenship or clearance genuinely gates a role are real and three
+# nullable booleans cost nothing to carry.
 class VisaSignals(BaseModel):
-    """Work-authorization signals. Tri-state by design: None means "the posting
-    does not say", which is different from False ("the posting says no").
-
-    Demoted from flagship on measured evidence — these fire on under 1% of
-    Canadian postings (CLAUDE.md product thesis) — but kept because the cases
-    where citizenship or clearance genuinely gates a role are real, and three
-    nullable booleans cost nothing to carry.
-    """
-
     model_config = ConfigDict(extra="forbid")
 
-    sponsorship_available: bool | None = Field(
-        None, description="Posting states the employer sponsors work visas."
-    )
-    requires_existing_authorization: bool | None = Field(
-        None,
-        description=(
-            "Posting states applicants must already be authorized to work "
-            "(e.g. 'must be legally entitled to work in Canada')."
-        ),
-    )
-    citizenship_or_pr_required: bool | None = Field(
-        None,
-        description=(
-            "Posting states citizenship or permanent residence is required "
-            "(common for cleared / government work)."
-        ),
-    )
-    evidence: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Verbatim phrases copied from the posting that justify the flags "
-            "above. Required whenever any flag is not None. Copy exactly — do "
-            "not paraphrase, and do not invent."
-        ),
-    )
+    sponsorship_available: Stated = Stated.NOT_STATED
+    requires_existing_authorization: Stated = Stated.NOT_STATED
+    citizenship_or_pr_required: Stated = Stated.NOT_STATED
+    evidence: list[str] = Field(default_factory=list)
 
     @property
     def any_flag_set(self) -> bool:
         return any(
-            flag is not None
+            flag is not Stated.NOT_STATED
             for flag in (
                 self.sponsorship_available,
                 self.requires_existing_authorization,
@@ -136,66 +153,26 @@ class VisaSignals(BaseModel):
         return self
 
 
+# The flagship signal family: experience requirements appear in 27.9% of real
+# postings and only 17% of those are open to <=2 years, versus under 1% for visa
+# signals (CLAUDE.md product thesis).
 class EligibilitySignals(BaseModel):
-    """Gates that decide whether a candidate can realistically apply.
-
-    This is the flagship signal family (see CLAUDE.md product thesis): measured
-    over 1,400 real postings, experience requirements appear in 27.9% and only
-    17% of those are open to <=2 years, while visa signals fire on under 1%.
-    """
-
     model_config = ConfigDict(extra="forbid")
 
-    min_years_experience: int | None = Field(
-        None,
-        ge=0,
-        le=40,
-        description=(
-            "Smallest number of years of experience the posting requires. From "
-            "'3-5 years' use 3; from '5+ years' use 5. None if no number is "
-            "stated — do not infer one from the title."
-        ),
-    )
-    degree_required: bool | None = Field(
-        None,
-        description=(
-            "True if a specific degree is stated as required, False if the "
-            "posting says a degree is not required or accepts equivalent "
-            "experience, None if it doesn't say."
-        ),
-    )
-    french_required: bool | None = Field(
-        None,
-        description=(
-            "True if French or bilingualism is required (common in Quebec and "
-            "federal roles). False if explicitly not needed, None if unstated."
-        ),
-    )
-    is_new_grad_friendly: bool | None = Field(
-        None,
-        description=(
-            "True only if the posting explicitly welcomes new graduates, "
-            "students, interns, or early-career candidates."
-        ),
-    )
-    is_internship_or_coop: bool | None = Field(
-        None, description="True if this is an internship, co-op or student position."
-    )
-    evidence: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Verbatim phrases from the posting supporting the fields above — "
-            "especially the experience requirement. Copy exactly; do not "
-            "paraphrase."
-        ),
-    )
+    # The single union we spend budget on: null and 0 mean different things here
+    # ("unstated" vs "no experience required") and both are useful to the feed.
+    min_years_experience: int | None = Field(None, ge=0, le=40)
+    degree_required: Stated = Stated.NOT_STATED
+    french_required: Stated = Stated.NOT_STATED
+    is_new_grad_friendly: Stated = Stated.NOT_STATED
+    is_internship_or_coop: Stated = Stated.NOT_STATED
+    evidence: list[str] = Field(default_factory=list)
 
     @property
     def any_gate_set(self) -> bool:
-        return any(
-            v is not None
+        return self.min_years_experience is not None or any(
+            v is not Stated.NOT_STATED
             for v in (
-                self.min_years_experience,
                 self.degree_required,
                 self.french_required,
                 self.is_new_grad_friendly,
@@ -205,9 +182,10 @@ class EligibilitySignals(BaseModel):
 
     @model_validator(mode="after")
     def _experience_claim_needs_evidence(self) -> "EligibilitySignals":
-        # Only the experience number is evidence-gated: it is the signal the
-        # product ranks on, and a fabricated "5+ years" would wrongly exclude a
-        # user from a role they could get. The booleans are lower-stakes.
+        # Only the experience number is evidence-gated: it is what the feed ranks
+        # on, and a fabricated "5+ years" would wrongly exclude a user from a
+        # role they could get. The booleans are lower-stakes, and demanding a
+        # quote for each would push the model to invent them.
         if self.min_years_experience is not None and not [
             e for e in self.evidence if e.strip()
         ]:
@@ -215,79 +193,41 @@ class EligibilitySignals(BaseModel):
         return self
 
 
-class JobComponents(BaseModel):
-    """Structured fields extracted from one job posting."""
-
+# Nested purely to buy schema budget — see the module docstring. Empty string =
+# the posting doesn't say; converted to NULL at the service boundary so the
+# columns stay honestly nullable.
+class Location(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    title_raw: str = Field(description="Job title exactly as posted.")
-    title_normalized: str = Field(
-        description="Title with company-specific decoration removed, e.g. "
-        "'Senior Software Engineer, Platform (Remote)' -> 'Senior Software Engineer'."
-    )
-    seniority: Seniority = Field(
-        Seniority.UNKNOWN, description="Seniority level implied by the title and requirements."
-    )
+    city: str = ""
+    region: str = ""
+    country: str = ""
 
-    company_raw: str = Field(description="Employer name exactly as posted.")
-    company_canonical: str = Field(
-        description="Employer name with legal suffixes and punctuation normalized, "
-        "e.g. 'Shopify Inc.' -> 'Shopify'."
-    )
 
-    skills: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Skills the posting asks for, using the provided canonical skill "
-            "list. Use only ids from that list here."
-        ),
-    )
-    skills_unmapped: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Skills the posting asks for that are NOT in the canonical list, "
-            "as written. These feed a review queue — do not force them into "
-            "a canonical id that does not fit."
-        ),
-    )
+class JobComponents(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-    required_quals: list[str] = Field(
-        default_factory=list, description="Requirements the posting marks as required."
-    )
-    preferred_quals: list[str] = Field(
-        default_factory=list, description="Requirements the posting marks as nice-to-have."
-    )
-
+    # ---- Nested models first. This ordering is load-bearing, not cosmetic ----
+    # The exact same fourteen fields compile when the four nested models lead and
+    # fail with `400 "Schema is too complex."` when they trail or are interleaved
+    # among the scalars — at an identical 3,472 schema bytes either way. Measured
+    # against the live API; see the module docstring. Keep new nested models in
+    # this block and new scalars below it.
     compensation: Compensation = Field(default_factory=Compensation)
-
-    location_raw: str | None = Field(None, description="Location string as posted.")
-    city: str | None = Field(None, description="City, if identifiable.")
-    region: str | None = Field(
-        None, description="Province/state name or code, if identifiable."
-    )
-    country: str | None = Field(
-        None, description="ISO-3166 alpha-2 country code, e.g. CA, US. None if unclear."
-    )
-    remote_policy: RemotePolicy = Field(RemotePolicy.UNKNOWN)
-
+    location: Location = Field(default_factory=Location)
     eligibility: EligibilitySignals = Field(default_factory=EligibilitySignals)
-    # Kept because the ~1% of postings where citizenship or clearance genuinely
-    # gates a role still matter, but demoted from flagship on measured evidence
-    # (CLAUDE.md product thesis).
     visa: VisaSignals = Field(default_factory=VisaSignals)
 
-    posted_at: date | None = Field(
-        None, description="Posting date if stated in the text. None otherwise."
-    )
-    language: str = Field(
-        "en", description="ISO-639-1 code for the language the posting is written in."
-    )
-    extraction_confidence: float = Field(
-        0.5,
-        ge=0.0,
-        le=1.0,
-        description=(
-            "Your confidence that these fields reflect the posting: 0.9+ for a "
-            "clear, complete posting; below 0.5 for truncated or garbled input."
-        ),
-    )
+    # ---- Scalars ----
+    title_normalized: str
+    company_canonical: str
+    seniority: Seniority = Seniority.UNKNOWN
+    remote_policy: RemotePolicy = RemotePolicy.UNKNOWN
+
+    skills: list[str] = Field(default_factory=list)
+    skills_unmapped: list[str] = Field(default_factory=list)
+    required_quals: list[str] = Field(default_factory=list)
+    preferred_quals: list[str] = Field(default_factory=list)
+
+    language: str = "en"
+    extraction_confidence: float = Field(0.5, ge=0.0, le=1.0)

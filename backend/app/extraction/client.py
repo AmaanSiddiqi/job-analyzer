@@ -38,6 +38,9 @@ class ExtractionResult:
     components: JobComponents
     input_tokens: int
     output_tokens: int
+    # Excluded from input_tokens by the API, and priced differently — see cost.py.
+    cache_read_tokens: int
+    cache_write_tokens: int
     model: str
     prompt_version: str
     attempts: int
@@ -68,10 +71,24 @@ def build_request(
                 ),
             }
         ],
-        "output_config": {"effort": settings.extraction_effort},
     }
-    if not settings.extraction_thinking:
-        kwargs["thinking"] = {"type": "disabled"}
+    # Not every model accepts `effort` — Haiku 4.5 rejects the whole request
+    # with a 400 rather than ignoring it, which silently cost a 150-listing
+    # eval run. Empty string means "don't send it".
+    if settings.extraction_effort:
+        kwargs["output_config"] = {"effort": settings.extraction_effort}
+    # Both branches are explicit on purpose. Omitting `thinking` entirely does
+    # NOT turn it on — it takes the API default, which measured as a median of
+    # +0 output tokens versus thinking-off, silently making the first "thinking
+    # on vs off" eval a comparison of one setting against itself.
+    #
+    # Sonnet 5 wants "adaptive", not the older "enabled" + budget_tokens shape:
+    #   400 '"thinking.type.enabled" is not supported for this model. Use
+    #        "thinking.type.adaptive" and "output_config.effort"'
+    # How *much* it thinks is then governed by effort above, not by a budget.
+    kwargs["thinking"] = (
+        {"type": "adaptive"} if settings.extraction_thinking else {"type": "disabled"}
+    )
     return kwargs
 
 
@@ -88,18 +105,25 @@ async def extract_one(
     base = build_request(settings, title, company, location, description)
     last_error: str | None = None
     last_raw: str | None = None
+    # Only set when the *model* produced something we rejected. A transport
+    # error means it never answered, and telling it "your previous response was
+    # rejected: APIConnectionError" would be nonsense the model then tries to
+    # act on.
+    correction: str | None = None
 
     for attempt in (1, 2):
         messages = list(base["messages"])
-        if last_error:
+        if correction:
             messages.append(
                 {
                     "role": "user",
                     "content": (
                         "Your previous response was rejected: "
-                        f"{last_error}\n\nReturn a corrected extraction. Remember that "
-                        "any visa flag which is not null requires a verbatim quote in "
-                        "`evidence`, and that unstated fields must be null."
+                        f"{correction}\n\nReturn a corrected extraction. Remember that "
+                        "any visa or eligibility flag set to \"yes\" or \"no\" requires a "
+                        "verbatim quote in `evidence`, that anything the posting does "
+                        "not state is \"not_stated\" / \"\" / 0 / \"unknown\" rather than "
+                        "a guess, and that compensation amounts require a currency."
                     ),
                 }
             )
@@ -112,6 +136,7 @@ async def extract_one(
             # Transport/status problems: retry once, then dead-letter. The SDK
             # already retried 429/5xx internally before raising.
             last_error = f"{type(e).__name__}: {e}"
+            correction = None
             log.warning("extraction attempt %d failed: %s", attempt, last_error)
             continue
 
@@ -128,7 +153,7 @@ async def extract_one(
         )
         parsed = response.parsed_output
         if parsed is None:
-            last_error = "response did not parse into JobComponents"
+            last_error = correction = "response did not parse into JobComponents"
             log.warning("extraction attempt %d: %s", attempt, last_error)
             continue
 
@@ -137,7 +162,7 @@ async def extract_one(
         except ValidationError as e:
             # Structured outputs guarantee the schema, not our extra rules
             # (evidence-required, comp needs a currency) — those land here.
-            last_error = str(e)
+            last_error = correction = str(e)
             log.warning("extraction attempt %d rejected by validators: %s", attempt, last_error)
             continue
 
@@ -145,6 +170,8 @@ async def extract_one(
             components=components,
             input_tokens=response.usage.input_tokens,
             output_tokens=response.usage.output_tokens,
+            cache_read_tokens=getattr(response.usage, "cache_read_input_tokens", 0) or 0,
+            cache_write_tokens=getattr(response.usage, "cache_creation_input_tokens", 0) or 0,
             model=response.model,
             prompt_version=PROMPT_VERSION,
             attempts=attempt,

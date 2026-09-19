@@ -25,10 +25,8 @@ from app.extraction.schema import JobComponents, Seniority
 from app.settings import Settings
 
 GOOD = JobComponents(
-    title_raw="Senior Software Engineer, Platform",
     title_normalized="Senior Software Engineer",
     seniority=Seniority.SENIOR,
-    company_raw="Cohere Inc.",
     company_canonical="Cohere",
     skills=["python", "aws"],
     extraction_confidence=0.9,
@@ -90,8 +88,16 @@ class TestBuildRequest:
         req = build_request(_settings(), "T", "C", None, "x" * (MAX_DESCRIPTION_CHARS + 5_000))
         assert len(req["messages"][0]["content"]) < MAX_DESCRIPTION_CHARS + 500
 
-    def test_thinking_disabled_only_when_configured(self):
-        assert "thinking" not in build_request(_settings(), "T", "C", None, "b")
+    def test_thinking_is_always_explicit(self):
+        """Both branches must set `thinking`. This test previously asserted the
+        opposite — that thinking-on omits the parameter — which is exactly the
+        bug: omitting it takes the API default rather than enabling anything, so
+        the first "thinking on vs off" eval compared one setting with itself
+        (median +0 output tokens between the two configs)."""
+        on = build_request(_settings(extraction_thinking=True), "T", "C", None, "b")
+        # "adaptive", not "enabled": Sonnet 5 rejects the older enabled +
+        # budget_tokens shape with a 400 and names this one in the error.
+        assert on["thinking"] == {"type": "adaptive"}
         off = build_request(_settings(extraction_thinking=False), "T", "C", None, "b")
         assert off["thinking"] == {"type": "disabled"}
 
@@ -155,11 +161,9 @@ class TestExtractOne:
         """Structured outputs guarantee the schema but not our extra rules, so
         an evidence-less visa flag arrives here as a validation error."""
         bad = {
-            "title_raw": "T",
             "title_normalized": "T",
-            "company_raw": "C",
             "company_canonical": "C",
-            "visa": {"sponsorship_available": True, "evidence": []},
+            "visa": {"sponsorship_available": "yes", "evidence": []},
         }
         client = _client(_response(bad), _response(bad))
         with pytest.raises(ExtractionFailed):
@@ -174,3 +178,22 @@ async def test_stub_client_is_never_a_real_client():
     in tests (which would need a key and hit the network)."""
     assert not isinstance(_client(_response(GOOD)), anthropic.AsyncAnthropic)
     assert isinstance(AsyncMock(), AsyncMock)
+
+
+class TestEffortParameter:
+    """Haiku 4.5 rejects `output_config` with a 400 instead of ignoring it, so
+    sending it unconditionally failed an entire 150-listing eval run."""
+
+    def test_effort_is_sent_when_set(self):
+        req = build_request(
+            _settings(extraction_effort="low"),
+            title="T", company="C", location=None, description="body",
+        )
+        assert req["output_config"] == {"effort": "low"}
+
+    def test_effort_is_omitted_when_blank(self):
+        req = build_request(
+            _settings(extraction_effort=""),
+            title="T", company="C", location=None, description="body",
+        )
+        assert "output_config" not in req
