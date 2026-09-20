@@ -46,6 +46,34 @@ jobs:
             --gold eval/fixtures/smoke_listings.jsonl \
             --report ../reports/extraction_eval_smoke.md
 
+  terraform:
+    name: terraform (fmt, validate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.16.3"
+          terraform_wrapper: false
+
+      - name: fmt
+        run: terraform fmt -recursive -check -diff infra
+
+      # -backend=false: validation needs no remote state and therefore no AWS
+      # credentials, so this runs on pull requests from forks too.
+      - name: validate (main stack)
+        working-directory: infra
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+
+      - name: validate (bootstrap)
+        working-directory: infra/bootstrap
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+
   frontend:
     name: frontend (lint, build)
     runs-on: ubuntu-latest

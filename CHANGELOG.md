@@ -3,6 +3,37 @@
 All notable changes to this project, organized by phase (see CLAUDE.md for the
 phase plan). Dates are when the phase closed, not when it started.
 
+## P1.4 phase 1 — Terraform skeleton + OIDC deploy (2026-09-20)
+
+The first of the five AWS phases in [`AWS.md`](AWS.md). Infrastructure code
+only: nothing in this change serves traffic, stores data or runs a job, and the
+live site is still on Railway.
+
+### Added
+- **`infra/`** — Terraform for remote state (`bootstrap/`), a public-subnets
+  VPC with a free S3 gateway endpoint and no NAT gateway, the `landed-backend`
+  ECR repository with a lifecycle policy, and the GitHub Actions OIDC role.
+  `infra/README.md` is the operator's manual.
+- **`.github/workflows/deploy.yml`** builds and pushes the backend image to ECR
+  on merge to `main`, authenticating by exchanging GitHub's OIDC token for a
+  short-lived AWS session. **No AWS access keys exist in repository secrets.**
+  The job skips itself while the `AWS_DEPLOY_ROLE_ARN` repository variable is
+  unset, so main stays green until the stack is applied.
+- **`terraform` job in CI** — `fmt -check` and `validate -backend=false`, which
+  need no credentials and so run on pull requests from forks too.
+- `make tf-bootstrap / tf-init / tf-plan / tf-apply / tf-fmt / tf-validate`.
+  `tf-init` regenerates the gitignored backend config from the caller's own
+  account id, because the state bucket name embeds it and this repo is public.
+
+### Changed
+- **`AWS.md`: no DynamoDB lock table.** The S3 backend's `dynamodb_table`
+  argument was deprecated in Terraform 1.11 and removed in 1.14; S3 locking is
+  native now (`use_lockfile = true`).
+- **`AWS.md`: the signup-credits plan was written for a new account, and this
+  is not one.** `905418381243` dates to October 2024 and already bills
+  ~$1.26/mo from idle SageMaker Studio domains, so "year one is effectively
+  free" cannot be assumed — the phase 5 budget alarm inherits that baseline.
+
 ## P1 follow-ups — dashboard reads extracted skills (2026-09-20)
 
 PR [#18](https://github.com/AmaanSiddiqi/job-analyzer/pull/18). Live in
