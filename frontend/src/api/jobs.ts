@@ -34,6 +34,8 @@ export interface SourceTrendsResponse {
   recent_sources: SourceCount[];
 }
 
+export type SkillSource = "extracted" | "baseline";
+
 export interface SkillTrend {
   skill: string;
   count: number;
@@ -47,6 +49,7 @@ export interface RoleTrend {
 export interface SkillTrendsResponse {
   total_jobs: number;
   top_skills: SkillTrend[];
+  source?: SkillSource;
 }
 
 export interface RoleTrendsResponse {
@@ -152,6 +155,8 @@ export interface SkillHistorySeries {
 
 export interface SkillHistoryResponse {
   series: SkillHistorySeries[];
+  /** "extracted" (LLM taxonomy ids) or "baseline" (frozen spaCy vocabulary). */
+  source?: SkillSource;
 }
 
 export const fetchSkillHistory = (skills: string[], weeks = 8) =>

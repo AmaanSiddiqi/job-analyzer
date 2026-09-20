@@ -9,6 +9,8 @@ from ..database import get_db
 from ..models import JobPosting
 from ..rate_limit import limiter
 from ..schemas import JobPostingCreate, JobPostingOut
+from ..services.skills import attach_extracted_skills, extracted_skill_match
+from ..settings import get_settings
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -30,8 +32,14 @@ def _filtered_jobs_query(
     if source_type:
         stmt = stmt.where(JobPosting.source_type == source_type.lower())
     if skill:
-        # Array containment (@>) — this is what the GIN index on skills serves.
-        stmt = stmt.where(JobPosting.skills.contains([skill.lower()]))
+        if get_settings().trends_use_extracted_skills:
+            # Cutover: the skill dropdown is built from /trends/skills, so when
+            # that serves canonical taxonomy ids the filter has to match against
+            # the same vocabulary or every selection returns nothing.
+            stmt = stmt.where(extracted_skill_match(skill))
+        else:
+            # Array containment (@>) — this is what the GIN index on skills serves.
+            stmt = stmt.where(JobPosting.skills.contains([skill.lower()]))
     if q:
         stmt = stmt.where(func.lower(JobPosting.title).contains(q.lower()))
     if since_days:
@@ -60,8 +68,10 @@ async def list_jobs(
     """
     stmt = _filtered_jobs_query(location, company, source_type, skill, q, since_days)
     stmt = stmt.order_by(JobPosting.date_scraped.desc()).offset(skip).limit(limit)
-    result = await db.execute(stmt)
-    return result.scalars().all()
+    jobs = list((await db.execute(stmt)).scalars().all())
+    if get_settings().trends_use_extracted_skills:
+        await attach_extracted_skills(db, jobs)
+    return jobs
 
 
 @router.get("/count")
@@ -86,6 +96,8 @@ async def get_job(job_id: int, db: AsyncSession = Depends(get_db)):
     job = await db.get(JobPosting, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    if get_settings().trends_use_extracted_skills:
+        await attach_extracted_skills(db, [job])
     return job
 
 

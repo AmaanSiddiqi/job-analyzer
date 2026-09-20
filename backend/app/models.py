@@ -107,6 +107,9 @@ class RawListing(Base):
             "source_type", "source_url", "content_hash", name="uq_raw_listings_source_content"
         ),
         Index("ix_raw_listings_fetched_at", text("fetched_at DESC")),
+        # Joins job_postings to its extracted components; the unique constraint
+        # above leads with source_type and can't serve this lookup.
+        Index("ix_raw_listings_source_url", "source_url"),
         Index("ix_raw_listings_source_type", "source_type"),
         Index("ix_raw_listings_content_hash", "content_hash"),
     )

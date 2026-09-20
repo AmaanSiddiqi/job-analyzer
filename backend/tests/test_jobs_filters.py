@@ -74,3 +74,69 @@ def test_filters_combine():
     for fragment in ("source_type = 'lever'", "@>", "lower(job_postings.title)", "date_scraped >="):
         assert fragment in sql
     assert sql.upper().count(" AND ") >= 3
+
+
+class TestExtractedSkillsCutover:
+    """The skill dropdown is built from /trends/skills and the job list filters
+    on it, so both must read the same vocabulary. Split them and every selection
+    silently returns nothing."""
+
+    def _sql(self, stmt) -> str:
+        from sqlalchemy.dialects import postgresql
+
+        return str(stmt.compile(dialect=postgresql.dialect())).lower()
+
+    def _query(self, **over):
+        from app.routes.jobs import _filtered_jobs_query
+
+        return _filtered_jobs_query(
+            location=None, company=None, source_type=None, skill="python", q=None,
+            since_days=None,
+        )
+
+    def test_baseline_mode_filters_the_spacy_column(self, monkeypatch):
+        from app.settings import get_settings
+
+        monkeypatch.setenv("TRENDS_USE_EXTRACTED_SKILLS", "false")
+        get_settings.cache_clear()
+        sql = self._sql(self._query())
+        assert "job_postings.skills @>" in sql
+        assert "listing_components" not in sql
+
+    def test_extracted_mode_matches_through_listing_components(self, monkeypatch):
+        from app.settings import get_settings
+
+        monkeypatch.setenv("TRENDS_USE_EXTRACTED_SKILLS", "true")
+        get_settings.cache_clear()
+        sql = self._sql(self._query())
+        assert "listing_components.skills @>" in sql
+        assert "raw_listings.source_url = job_postings.source_url" in sql
+        assert "listing_components.prompt_version" in sql
+
+
+class TestJobCardSkills:
+    """Every chip on a job card is a filter link, so in extracted mode the
+    chips must come from the same vocabulary the filter matches — otherwise
+    clicking one returns nothing."""
+
+    async def test_extracted_skills_replace_baseline_ones_on_the_card(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock
+
+        from app.services.skills import attach_extracted_skills
+
+        jobs = [
+            SimpleNamespace(source_url="https://t/1", skills=["go", "sql"]),
+            SimpleNamespace(source_url="https://t/2", skills=["python"]),
+        ]
+        db = AsyncMock()
+        rows = MagicMock()
+        rows.all.return_value = [SimpleNamespace(source_url="https://t/1", skills=["sql"])]
+        db.execute = AsyncMock(return_value=rows)
+
+        await attach_extracted_skills(db, jobs)
+
+        assert jobs[0].skills == ["sql"]  # the bogus "go" is gone
+        # No extraction yet (new posting, aggregator row): keep what we had
+        # rather than render an empty card.
+        assert jobs[1].skills == ["python"]
