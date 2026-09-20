@@ -22,9 +22,9 @@ CLAUDE.md's standing rule is "don't migrate without a trigger (bill >$50/mo, Pos
 | Monitoring | **CloudWatch** alarms + logs | ~$1 |
 | **Total** | | **~$18** |
 
-New accounts get up to **$200 in credits** (12-month expiry), so year one is effectively free.
+~~New accounts get up to **$200 in credits** (12-month expiry), so year one is effectively free.~~
 
-**At signup, choose the PAID plan, not the Free plan.** Both grant the credits; the Free plan *closes the account automatically* after 6 months or when credits run out. For a live app that means the site goes dark.
+**Corrected 2026-09-20, during phase 1:** this is *not* a new account. `905418381243` has existed since at least October 2024 (leftover SageMaker Studio domains in `us-east-1`) and already bills a steady **$1.26/mo**. The signup-credit and "choose the PAID plan at signup" advice above is therefore moot — **check Billing → Credits for anything still unexpired, and budget for the real ~$18/mo** rather than assuming year one is free. The $30 Budgets alarm in phase 5 should account for the $1.26 baseline, and those idle SageMaker domains are worth deleting on their own merits.
 
 ### Deliberately not built
 
@@ -42,9 +42,11 @@ New accounts get up to **$200 in credits** (12-month expiry), so year one is eff
 
 Each is independently mergeable and leaves production untouched until the final cutover.
 
-### 1. Terraform skeleton + OIDC deploy
-Remote state (S3 + DynamoDB lock), VPC with public subnets, ECR repo, GitHub Actions role assumed via **OIDC — no long-lived AWS keys in GitHub secrets**, and a workflow that builds and pushes the image on merge to `main`.
+### 1. Terraform skeleton + OIDC deploy — *code merged, not yet applied*
+Remote state (S3, native locking), VPC with public subnets, ECR repo, GitHub Actions role assumed via **OIDC — no long-lived AWS keys in GitHub secrets**, and a workflow that builds and pushes the image on merge to `main`. Code in `infra/`; operator's manual in [`infra/README.md`](infra/README.md).
 **DoD:** `terraform plan` clean from a fresh clone; a merge pushes an image to ECR; no AWS access keys exist anywhere.
+
+*Amended during implementation:* **no DynamoDB lock table.** The S3 backend's `dynamodb_table` argument was deprecated in Terraform 1.11 and removed in 1.14 (we pin 1.16); locking is native to S3 now via `use_lockfile = true`, so the table would be a resource nothing reads. One less resource, same guarantee.
 
 ### 2. RDS + migration rehearsal
 `db.t4g.micro`, 20 GB gp3, automated backups, security group open only to the app. Restore a Railway dump into it and run `alembic upgrade head`. The database is **158 MB** today, growing ~100 MB/month (mostly `raw_listings`), so 20 GB is years of headroom.

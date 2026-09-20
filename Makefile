@@ -1,4 +1,5 @@
-.PHONY: eval-smoke eval-export eval-draft eval-review eval-extraction test lint
+.PHONY: eval-smoke eval-export eval-draft eval-review eval-extraction test lint \
+	tf-bootstrap tf-init tf-plan tf-apply tf-fmt tf-validate
 
 # --- eval targets (see backend/eval/README.md for the full protocol) ---
 
@@ -45,3 +46,36 @@ test:
 lint:
 	cd backend && uv run ruff check . && uv run mypy .
 	cd frontend && npm run lint
+
+# --- infrastructure (see infra/README.md and AWS.md) ---
+
+# One-time: create the S3 bucket the main stack stores its state in. Local
+# state, gitignored, disposable — infra/README.md has the re-import commands.
+tf-bootstrap:
+	cd infra/bootstrap && terraform init && terraform apply
+
+# Generate the gitignored backend config from the caller's own AWS account and
+# initialise the main stack. Safe to re-run; this is step one from a fresh
+# clone, since the bucket name is not committed (public repo).
+tf-init:
+	@command -v terraform >/dev/null || { echo "terraform not installed: brew install hashicorp/tap/terraform"; exit 1; }
+	@account=$$(aws sts get-caller-identity --query Account --output text) && \
+		project=$$(awk -F'"' '/^project/ {print $$2}' infra/terraform.tfvars) && \
+		region=$$(awk -F'"' '/^region/ {print $$2}' infra/terraform.tfvars) && \
+		printf 'bucket = "%s-tfstate-%s"\nregion = "%s"\n' "$$project" "$$account" "$$region" > infra/backend.hcl && \
+		echo "wrote infra/backend.hcl for account $$account ($$region)"
+	cd infra && terraform init -backend-config=backend.hcl -reconfigure
+
+tf-plan:
+	cd infra && terraform plan
+
+tf-apply:
+	cd infra && terraform apply
+
+# What CI checks — no AWS credentials required.
+tf-fmt:
+	terraform fmt -recursive -check -diff infra
+
+tf-validate:
+	cd infra && terraform init -backend=false -input=false && terraform validate
+	cd infra/bootstrap && terraform init -backend=false -input=false && terraform validate

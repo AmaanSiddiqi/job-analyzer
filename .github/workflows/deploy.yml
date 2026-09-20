@@ -1,0 +1,71 @@
+# Builds the backend image and publishes it to ECR on merge to main.
+#
+# It authenticates by exchanging GitHub's OIDC token for a short-lived AWS
+# session (infra/github_oidc.tf) — there are no AWS access keys in this
+# repository's secrets. Publishing an image is all this role can do; nothing
+# here deploys or restarts anything yet, which lands with the Fargate tasks
+# in AWS.md phase 3.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # required to request the OIDC token
+
+jobs:
+  image:
+    name: build and push backend image
+    runs-on: ubuntu-latest
+    # The role ARN contains the AWS account id, so it lives in a repository
+    # variable rather than in this file (the repo is public). Skipping cleanly
+    # when it is unset keeps forks and a pre-bootstrap main green.
+    if: vars.AWS_DEPLOY_ROLE_ARN != ''
+    env:
+      AWS_REGION: ca-central-1
+      ECR_REPOSITORY: landed-backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-${{ github.run_id }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          # linux/amd64 only: Lambda and Fargate both run x86 here, and a
+          # second arch would double build time for nothing.
+          platforms: linux/amd64
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          echo "Pushed \`${ECR_REPOSITORY}:${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
