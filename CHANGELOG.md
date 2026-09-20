@@ -13,7 +13,7 @@ requires for backfills didn't exist. PRs
 
 ### Added
 - **Batch extraction** (`app/extraction/batch.py`, migration `0007`) at
-  **$0.0067/posting** — half the live price — scheduled every 45 minutes behind
+  **$0.0093/posting** in production — half the live price — scheduled every 45 minutes behind
   `ENABLE_LLM_EXTRACTION`. Submissions are tracked in `extraction_batches` so a
   deploy can't orphan paid-for results; failed results get one live retry then
   dead-letter; a circuit breaker stops a systematically failing batch from being
@@ -23,6 +23,13 @@ requires for backfills didn't exist. PRs
   requests never find the cache warm (0/6 reads), which made batch no cheaper
   than live. One live request with the identical prefix and a 1-hour TTL turned
   that into 5/5 reads.
+
+### Measured
+- **Backfill complete:** 1,782 postings, 100% of eligible (P1 DoD), $16.57 total,
+  0 dead letters, 2 live retries. Corpus rates, each evidence-backed, supersede
+  the August regex scan: experience stated in **60.0%** of postings (scan said
+  27.9%), of which 19.6% are open to ≤2 years; degree 18.4%; existing work
+  authorization required 6.3% (never measured before); sponsorship offered 1.1%.
 
 ### Fixed
 - **Duplicate extraction of edited postings** — `raw_listings` is append-only,

@@ -8,7 +8,7 @@ Every posting is parsed by an LLM into structured components — skills, seniori
 
 **Live:** [jobs.amaansiddiqi.me](https://jobs.amaansiddiqi.me) · API on Railway · frontend on Vercel
 
-> **Status (P1 complete, backfill running):** ~8,200 postings from 69 identity-verified Greenhouse/Lever/Ashby company boards plus the Adzuna and Jooble aggregators, polled every 6 hours. The LLM extraction pipeline beats the frozen spaCy baseline by **+0.370 F1** and runs as scheduled Message Batches at **$0.0067 per posting**. See [CHANGELOG.md](CHANGELOG.md) and [reports/p1_report.md](reports/p1_report.md).
+> **Status (P1 complete):** ~8,200 postings from 69 identity-verified Greenhouse/Lever/Ashby company boards plus the Adzuna and Jooble aggregators, polled every 6 hours. Every eligible posting (1,782) is LLM-extracted — the pipeline beats the frozen spaCy baseline by **+0.370 F1** and runs as scheduled Message Batches at **$0.0093 per posting**, ~$7–11/month. See [CHANGELOG.md](CHANGELOG.md) and [reports/p1_report.md](reports/p1_report.md).
 
 ## Stack
 
@@ -36,9 +36,11 @@ Every posting is parsed by an LLM into structured components — skills, seniori
 
   Recall more than doubles while precision *rises*. Haiku came out worse **and** 2x the cost: its cached prefix measures 3,337 tokens, under Haiku 4.5's 4,096-token caching minimum, so prompt caching never engages. Full write-up: [reports/extraction_eval_llm.md](reports/extraction_eval_llm.md).
 
-- **Cost engineering from measurement, not assumption.** Batches are half price on paper, but a real batch cost the same as live calls — concurrent requests never find the prompt cache warm, so every one paid a 4,322-token cache write. One live warm-up request with a 1-hour TTL before each submission turned 0/6 cache reads into 5/5, and **$0.0149 → $0.0067 per posting**. A $15 per-run cap is checked *before* anything is sent, sized for the worst case so it holds even when caching doesn't.
+- **Cost engineering from measurement, not assumption.** Batches are half price on paper, but a real batch cost the same as live calls — concurrent requests never find the prompt cache warm, so every one paid a 4,322-token cache write. One live warm-up request with a 1-hour TTL before each submission turned 0/6 cache reads into 5/5 — 996/1000 on the first production batch — and **$0.0149 → $0.0093 per posting** at production scale. A $15 per-run cap is checked *before* anything is sent, sized for the worst case so it holds even when caching doesn't.
 
 - **The schema limit nobody documents.** Anthropic's structured-output compiler rejects schemas as "too complex" based on **field order**: the same 14 fields compile with nested models first and fail with them last, at a byte-identical size. Found by bisecting against the live API; recorded in [`schema.py`](backend/app/extraction/schema.py).
+
+- **The corpus answers questions a job board can't.** Across 1,782 extracted postings, each claim backed by a verbatim quote: 60% state an experience requirement and only 19.6% of those are open to ≤2 years (modal: 5). A regex scan had put the first number at 27.9% — less than half. Sponsorship is offered in 1.1%, but 6.3% require *existing* work authorization.
 
 - **Evidence-gated claims.** A "5+ years required" that the model invented would wrongly exclude a user from a job they could get. Pydantic validators reject any experience requirement or visa flag without a verbatim quote, then retry once, then dead-letter.
 

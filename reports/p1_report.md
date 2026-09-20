@@ -1,7 +1,7 @@
 # P1 Phase Report — Sources & Extraction
 
-**Status:** complete; production backfill running (2026-09-19) · **PRs:** #5–#16, all merged
-**DoD per CLAUDE.md:** F1 report published, beating baseline P 0.874 / R 0.312 / F1 0.460 ✅ · Haiku-vs-Sonnet and thinking-on-vs-off reported ✅ · per-source counts visible ✅ · ≥90% of *eligible* listings extracted ⏳ *(backfill of ~1,782 postings in progress; scheduled extraction keeps it there)*
+**Status:** complete — backfill finished 2026-09-19, 100% coverage of eligible postings · **PRs:** #5–#16, all merged
+**DoD per CLAUDE.md:** F1 report published, beating baseline P 0.874 / R 0.312 / F1 0.460 ✅ · Haiku-vs-Sonnet and thinking-on-vs-off reported ✅ · per-source counts visible ✅ · ≥90% of *eligible* listings extracted ✅ *(100%: 1,782 of 1,782; scheduled extraction keeps it there)*
 
 ## What shipped
 
@@ -96,12 +96,12 @@ trap that recurs:
 
 - **40/150 rows are human-verified** (27%). The headline F1 holds on that subset
   (0.844), but the other 110 rows are annotator-model labels.
-- **The gold set over-represents postings that state experience** — 69% versus
-  the corpus-wide 27.9%, because it was sampled from full board descriptions
-  while the corpus also holds truncated aggregator rows. Audited rather than
-  assumed: 102/103 evidence quotes are verbatim in the source, and an
-  independent regex finds a years-phrase in exactly the same 103 descriptions.
-  **The 27.9% corpus figure stands.**
+- **The gold set was representative; the August regex scan was not.** Its 69%
+  experience-statement rate looked like over-sampling against the scan's 27.9%.
+  Extracting the whole corpus settled it: **60.0% of 1,782 production postings
+  state an experience requirement**, with 98.2% of the quotes verbatim in the
+  source. The scan undercounted by more than half, and the corpus rates below
+  supersede it.
 - **Costs in the eval table are a lower bound** (~9%) for rows predicted before
   the cache-pricing fix.
 - **No eligibility/visa labels exist yet**, so those fields are reported as yield
@@ -119,17 +119,46 @@ submission brought it to **$0.0067**. Building it surfaced five more defects,
 each of which would have cost money or hidden it; they are listed in the
 CHANGELOG.
 
-**Measured production costs:** backfill of ~1,782 eligible postings ≈ **$12**
-(two batches, because the $15 cap is sized for zero cache hits); steady state
-≈ **$6–10/month**.
+**Measured production costs:** the backfill of 1,782 eligible postings cost
+**$16.57** across two batches; steady state ≈ **$7–11/month**.
+
+## Production results (backfill complete, 2026-09-19)
+
+| | |
+|---|---|
+| Postings extracted | **1,782** (100% of eligible — P1 DoD met) |
+| Batches | 2, both collected; 1,780 succeeded, 2 needed a live retry, **0 dead letters** |
+| Cost | **$16.57**, or **$0.0093/posting** (996/1000 requests read the warmed cache) |
+| Evidence quality | 98.2% of experience quotes verbatim in the source posting |
+
+**Cost note:** $0.0093 supersedes the $0.0067 measured pre-launch — the cache
+warm-up works exactly as designed, but real postings are ~2.5x longer than the
+four-listing sample it was measured on (median input 2,356 tokens). Steady
+state is ~$7–11/month at current ingestion rates.
+
+### What the corpus actually says (1,782 postings, each claim evidence-backed)
+
+| Signal | Rate | August regex scan |
+|---|---|---|
+| States an experience requirement | **60.0%** | 27.9% (undercount) |
+| …of those, open to ≤2 years | 19.6% (modal 5 yrs) | 17% |
+| Degree required | 18.4% | 24.6% |
+| Requires *existing* work authorization | **6.3%** | not measured |
+| French/bilingual required | 2.9% | 4.9% |
+| New-grad friendly | 1.5% | 2.9% (co-op/intern) |
+| Sponsorship offered | 1.1% | 0.2% |
+| Citizenship/PR required | 0.7% | 0.1% |
+
+The wedge is stronger than the thesis assumed: experience gates **twice** as
+many postings as believed, and four out of five of those exclude a candidate
+with ≤2 years. Visa signals remain rare, confirming the August pivot — though
+the 6.3% demanding existing authorization is a real gate for anyone who would
+need sponsorship, and it was invisible to the old scan.
 
 ## Next
 
-1. Backfill completes → switch the dashboard's skill data to the LLM extractor
-   behind a flag (fixes the baseline's "go" false positive: it tags "go to
-   market", "on-the-go", "go-getter").
-2. Rank skills across junior / ≤2-years postings only — the first real use of
-   the extracted eligibility data, and a check on Amaan's own learning plan.
-3. Eligibility/visa gold labels, so the flagship signals are scored, not counted.
-4. Decide: AWS migration (career value; ~$40–50/mo) or P1.5 Workday ingestion
+1. Switch the dashboard's skill data to the LLM extractor behind a flag (fixes
+   the baseline's "go" false positive: it tags "go to market", "on-the-go").
+2. Eligibility/visa gold labels, so the flagship signals are scored, not counted.
+3. Decide: AWS migration (career value; ~$40–50/mo) or P1.5 Workday ingestion
    (the coverage that replaces LinkedIn) first.

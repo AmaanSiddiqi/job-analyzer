@@ -358,20 +358,22 @@ def render(results: list[Scored], baseline_raw: Scored, gold_path: Path) -> str:
         "",
         "Not scored against gold (no eligibility labels yet — that's the next "
         "review pass); reported so the rates can be sanity-checked against the "
-        "corpus-wide regex scan that motivated the pivot (experience stated in "
-        "27.9% of postings, visa signals <1%).",
+        "production corpus.",
         "",
-        "**Read the 69% as a property of the gold set, not of the corpus.** It "
-        "looks alarming against the corpus-wide 27.9%, so it was audited: "
-        "102 of 103 evidence quotes appear verbatim in the source description "
-        "and 99 contain an explicit \"N years\" phrase, and an independent "
-        "regex over these same 150 descriptions finds a years-phrase in exactly "
-        "103 of them. The extractor is not inferring — the gold set simply "
-        "over-represents postings that state experience, because it was sampled "
-        "from full board descriptions while the corpus also contains truncated "
-        "aggregator rows. The 27.9% corpus figure stands; this 69% is not a "
-        "revision of it. Haiku's 6% on the same descriptions is a miss rate, "
-        "not a different corpus.",
+        "**The gold set turned out to be representative, and the old regex scan "
+        "was not.** These rates looked alarming against the 27.9% that an August "
+        "regex scan reported for experience requirements, so the gold set was "
+        "audited for over-sampling: 102 of 103 evidence quotes appear verbatim "
+        "in the source and 99 contain an explicit \"N years\" phrase. Extracting "
+        "the full production corpus then settled it — **60.0% of 1,782 postings "
+        "state an experience requirement** (98.2% of those quotes verbatim), so "
+        "the gold set's 69% was close and the regex scan was undercounting by "
+        "more than half. Corpus rates now supersede that scan: of postings "
+        "stating a number, 19.6% are open to ≤2 years (modal 5); degree 18.4%; "
+        "French 2.9%; new-grad-friendly 1.5%. Visa signals stay rare — "
+        "sponsorship offered 1.1%, citizenship/PR required 0.7% — but 6.3% "
+        "require *existing* work authorization, a gate the August scan never "
+        "measured.",
         "",
         "| Config | listings with min_years_experience | with any visa signal |",
         "|---|---|---|",
