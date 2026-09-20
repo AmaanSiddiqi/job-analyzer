@@ -3,6 +3,32 @@
 All notable changes to this project, organized by phase (see CLAUDE.md for the
 phase plan). Dates are when the phase closed, not when it started.
 
+## P1 follow-ups — dashboard reads extracted skills (2026-09-20)
+
+PR [#18](https://github.com/AmaanSiddiqi/job-analyzer/pull/18). Live in
+production the same day.
+
+### Added
+- **`TRENDS_USE_EXTRACTED_SKILLS`** switches the skills chart, the skill-history
+  chart, the `?skill=` filter and job-card chips to LLM-extracted canonical
+  taxonomy ids — all four together, because in the UI they are one loop: the
+  chart fills the dropdown, the dropdown drives the filter, and every chip is a
+  filter link. The API reports which source answered and the chart subtitle says
+  so, because the two count different populations (~8,200 indexed postings vs
+  the ~1,800 eligible board postings a user can still apply to).
+- Migration `0008`: index on `raw_listings.source_url`, which joins postings to
+  their extracted components.
+
+### Fixed
+- **The frozen baseline counted "go" as the Go language** in "go to market",
+  "on-the-go" and "go-getter", inflating the chart and making the Go filter
+  return marketing roles. Fixed by the cutover, not by patching the baseline —
+  it is the frozen eval comparison and moving it would invalidate the published
+  F1 numbers.
+- **`npm run build` never typechecked** (no `tsc` in the script) and CI runs only
+  lint + build, so a genuine type error passed both. `build` now runs
+  `tsc --noEmit` first.
+
 ## P1 follow-ups — extraction goes live (2026-09-19)
 
 The pipeline P1 built could not yet run in production: extraction was live-only
