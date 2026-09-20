@@ -8,7 +8,7 @@ Every posting is parsed by an LLM into structured components — skills, seniori
 
 **Live:** [jobs.amaansiddiqi.me](https://jobs.amaansiddiqi.me) · API on Railway · frontend on Vercel
 
-> **Status (P1 complete, backfill running):** ~8,200 postings from 69 identity-verified Greenhouse/Lever/Ashby company boards plus the Adzuna and Jooble aggregators, polled every 6 hours. The LLM extraction pipeline beats the frozen spaCy baseline by **+0.370 F1** and runs as scheduled Message Batches at **$0.0067 per posting**. See [CHANGELOG.md](CHANGELOG.md) and [reports/p1_report.md](reports/p1_report.md).
+> **Status (P1 complete, backfill running):** ~8,200 postings from 69 identity-verified Greenhouse/Lever/Ashby company boards plus the Adzuna and Jooble aggregators, polled every 6 hours. The LLM extraction pipeline beats the frozen spaCy baseline by **+0.370 F1** and runs as scheduled Message Batches at **$0.0067 per posting**. The dashboard serves those extracted skills, so "go to market" is no longer counted as the Go language. See [CHANGELOG.md](CHANGELOG.md) and [reports/p1_report.md](reports/p1_report.md).
 
 ## Stack
 
@@ -151,10 +151,11 @@ frontend/src/
 
 reports/                 # Eval reports + per-phase closeout reports
 CLAUDE.md                # Product spec & phase plan
+AWS.md                   # AWS migration plan (P1.4) — phases + cutover checklist
 CHANGELOG.md             # Per-phase change log
 V2.md                    # Parked ideas, with the reasoning
 ```
 
 ## Roadmap
 
-The full phase plan lives in [CLAUDE.md](CLAUDE.md). Next: switch the dashboard's skill data to the LLM extractor once the backfill completes, **Workday ingestion** (Canadian banks, telecoms and enterprises hire overwhelmingly on Workday — the coverage that replaces LinkedIn), then cross-board dedup (P2), user accounts with resume upload (P3), and per-user explained matching (P5).
+The full phase plan lives in [CLAUDE.md](CLAUDE.md); the AWS migration plan is in [AWS.md](AWS.md). Next: switch the dashboard's skill data to the LLM extractor once the backfill completes, **Workday ingestion** (Canadian banks, telecoms and enterprises hire overwhelmingly on Workday — the coverage that replaces LinkedIn), then cross-board dedup (P2), user accounts with resume upload (P3), and per-user explained matching (P5).
