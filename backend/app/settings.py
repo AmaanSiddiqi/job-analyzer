@@ -52,6 +52,17 @@ class Settings(BaseSettings):
     # Feature flag; also requires ANTHROPIC_API_KEY. Default off so a deploy
     # never starts spending on its own.
     enable_llm_extraction: bool = False
+    # Cutover switch for the dashboard: when true, skill charts and the ?skill=
+    # filter read LLM-extracted canonical taxonomy ids from listing_components
+    # instead of the frozen spaCy baseline's vocabulary. Both move together on
+    # purpose — the skill dropdown is populated from /trends/skills, so mixing
+    # the two would offer skills the job filter cannot match.
+    #
+    # It also narrows the population: the baseline covers all ~8,200 postings
+    # including archived LinkedIn rows, while extraction covers the ~1,800
+    # eligible board postings (fresher, and the only ones a user can still
+    # apply to). The API reports which source answered, and the UI says so.
+    trends_use_extracted_skills: bool = False
 
     # Sonnet 5 keeps Opus 5 free to be the *stronger, different* eval annotator
     # CLAUDE.md requires — same-model labeling would make the eval circular.

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import type { SkillSource } from "./api/jobs";
 import SkillsChart from "./components/SkillsChart";
 import RolesChart from "./components/RolesChart";
 import CompaniesChart from "./components/CompaniesChart";
@@ -58,6 +59,10 @@ export default function App() {
   const [page, setPage] = useState(0);
 
   const [skills, setSkills] = useState<SkillTrend[]>([]);
+  // Which extractor answered. The two count different populations, so the
+  // subtitle says which one rather than letting the numbers change silently.
+  const [skillSource, setSkillSource] = useState<SkillSource>("baseline");
+  const [skillTotal, setSkillTotal] = useState<number | null>(null);
   const [roles, setRoles] = useState<RoleTrend[]>([]);
   const [companies, setCompanies] = useState<CompanyTrend[]>([]);
   const [history, setHistory] = useState<SkillHistorySeries[]>([]);
@@ -103,6 +108,8 @@ export default function App() {
     ])
       .then(([skillsData, rolesData, companiesData, historyData, sourcesData, statsData]) => {
         setSkills(skillsData.top_skills);
+        setSkillSource(skillsData.source ?? "baseline");
+        setSkillTotal(skillsData.total_jobs);
         setRoles(rolesData.top_roles);
         setCompanies(companiesData.top_companies);
         setHistory(historyData.series);
@@ -287,7 +294,11 @@ export default function App() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
                 <h2 className="text-base font-semibold text-gray-800 mb-1">Top skills in demand</h2>
-                <p className="text-xs text-gray-400 mb-4">All-time frequency across indexed postings</p>
+                <p className="text-xs text-gray-400 mb-4">
+                  {skillSource === "extracted"
+                    ? `AI-extracted from ${skillTotal?.toLocaleString() ?? "—"} current postings`
+                    : "All-time frequency across indexed postings"}
+                </p>
                 <SkillsChart data={skills} />
               </section>
 

@@ -54,6 +54,10 @@ class RoleTrend(BaseModel):
 class SkillTrendsResponse(BaseModel):
     total_jobs: int
     top_skills: list[SkillTrend]
+    # "extracted" = LLM canonical taxonomy ids over eligible board postings;
+    # "baseline" = the frozen spaCy vocabulary over every indexed posting.
+    # The two count different populations, so the UI states which it is showing.
+    source: str = "baseline"
 
 
 class RoleTrendsResponse(BaseModel):
@@ -93,4 +97,5 @@ class SkillHistorySeries(BaseModel):
 
 
 class SkillHistoryResponse(BaseModel):
+    source: str = "baseline"
     series: list[SkillHistorySeries]

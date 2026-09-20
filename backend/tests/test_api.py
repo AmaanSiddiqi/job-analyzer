@@ -133,3 +133,29 @@ async def test_skill_history_reports_share_of_each_weeks_postings(client, mock_d
         (9, 30, 0.3),
         (3, 8, 0.375),
     ]
+
+
+async def test_skill_trends_reports_which_extractor_answered(client, mock_db, monkeypatch):
+    """The two sources count different populations — baseline covers every
+    indexed posting, extraction only eligible board postings — so the response
+    says which one it is and the UI shows it."""
+    from app.settings import get_settings
+
+    monkeypatch.setenv("TRENDS_USE_EXTRACTED_SKILLS", "false")
+    get_settings.cache_clear()
+    assert (await client.get("/trends/skills")).json()["source"] == "baseline"
+
+    monkeypatch.setenv("TRENDS_USE_EXTRACTED_SKILLS", "true")
+    get_settings.cache_clear()
+    assert (await client.get("/trends/skills")).json()["source"] == "extracted"
+
+
+async def test_skill_history_defaults_come_from_the_active_source(client, monkeypatch):
+    """Defaulting to the baseline's top 5 while serving extracted data would
+    chart taxonomy ids the extractor never emits."""
+    from app.settings import get_settings
+
+    monkeypatch.setenv("TRENDS_USE_EXTRACTED_SKILLS", "true")
+    get_settings.cache_clear()
+    body = (await client.get("/trends/skills/history")).json()
+    assert body["source"] == "extracted"

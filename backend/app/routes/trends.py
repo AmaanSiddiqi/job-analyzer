@@ -6,7 +6,8 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models import JobPosting
+from ..extraction.prompts import PROMPT_VERSION
+from ..models import JobPosting, ListingComponent
 from ..schemas import (
     CompanyTrend,
     CompanyTrendsResponse,
@@ -21,6 +22,7 @@ from ..schemas import (
     SourceTrendsResponse,
     StatsResponse,
 )
+from ..settings import get_settings
 
 router = APIRouter(prefix="/trends", tags=["trends"])
 
@@ -35,7 +37,43 @@ async def trends_skills(
     top_n: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
-    """Top skills by frequency across all indexed postings."""
+    """Top skills by frequency.
+
+    Two sources, switched by `TRENDS_USE_EXTRACTED_SKILLS` (see settings):
+
+      * **extracted** — canonical taxonomy ids from the LLM extractor. Context
+        decides membership, so "we go to market" is not the Go language, while
+        the baseline's PhraseMatcher counts it (and "on-the-go", "go-getter").
+        Covers eligible board postings only — fewer rows, but the ones a user
+        can still apply to.
+      * **baseline** — the frozen spaCy vocabulary over every indexed posting,
+        including archived LinkedIn rows. The fallback, so the live site never
+        depends on a backfill having run.
+    """
+    if get_settings().trends_use_extracted_skills:
+        rows = (
+            await db.execute(
+                select(
+                    func.unnest(ListingComponent.skills).label("skill"),
+                    func.count().label("n"),
+                )
+                .where(ListingComponent.prompt_version == PROMPT_VERSION)
+                .group_by(text("skill"))
+                .order_by(text("n DESC"))
+                .limit(top_n)
+            )
+        ).all()
+        total = await db.scalar(
+            select(func.count())
+            .select_from(ListingComponent)
+            .where(ListingComponent.prompt_version == PROMPT_VERSION)
+        )
+        return SkillTrendsResponse(
+            total_jobs=total or 0,
+            top_skills=[SkillTrend(skill=r.skill, count=r.n) for r in rows],
+            source="extracted",
+        )
+
     # Label as "n", not "count" — SQLAlchemy's Row is tuple-like, and a
     # column named "count" shadows tuple.count() for attribute access.
     stmt = (
@@ -49,7 +87,9 @@ async def trends_skills(
     )
     result = await db.execute(stmt)
     top_skills = [SkillTrend(skill=row.skill, count=row.n) for row in result.all()]
-    return SkillTrendsResponse(total_jobs=await _total_jobs(db), top_skills=top_skills)
+    return SkillTrendsResponse(
+        total_jobs=await _total_jobs(db), top_skills=top_skills, source="baseline"
+    )
 
 
 @router.get("/roles", response_model=RoleTrendsResponse)
@@ -138,20 +178,30 @@ async def trends_skill_history(
     Weekly posting counts for a set of skills over the last N weeks.
     If no skills are specified, defaults to the top 5 by overall frequency.
     """
+    use_extracted = get_settings().trends_use_extracted_skills
+    source = "extracted" if use_extracted else "baseline"
+
     if not skills:
-        top = await db.execute(
+        # Default series must come from the same vocabulary the rest of the
+        # response uses, or the chart asks for skills this source never emits.
+        default_top = (
             select(
+                func.unnest(ListingComponent.skills).label("skill"),
+                func.count().label("n"),
+            ).where(ListingComponent.prompt_version == PROMPT_VERSION)
+            if use_extracted
+            else select(
                 func.unnest(JobPosting.skills).label("skill"),
                 func.count().label("n"),
             )
-            .group_by(text("skill"))
-            .order_by(text("n DESC"))
-            .limit(5)
+        )
+        top = await db.execute(
+            default_top.group_by(text("skill")).order_by(text("n DESC")).limit(5)
         )
         skills = [row.skill for row in top.all()]
 
     if not skills:
-        return SkillHistoryResponse(series=[])
+        return SkillHistoryResponse(series=[], source=source)
 
     # Bucket by when the employer *posted* the listing, not when we scraped it.
     # Scrape date made this a history of our own ingestion: the Aug 2026 board
@@ -186,7 +236,31 @@ async def trends_skill_history(
         GROUP BY d.week, skill, t.total
         ORDER BY 1, 2
     """)
-    rows = (await db.execute(stmt, {"weeks": weeks, "skills": list(skills)})).all()
+    params: dict = {"weeks": weeks, "skills": list(skills)}
+    if use_extracted:
+        # Same shape — share of each week's postings — over extracted
+        # components, dated from raw_listings (job_postings has no posted_at).
+        stmt = text("""
+            WITH dated AS (
+                SELECT lc.skills,
+                       date_trunc('week', COALESCE(r.posted_at, r.fetched_at))::date AS week
+                FROM listing_components lc
+                JOIN raw_listings r ON r.id = lc.raw_listing_id
+                WHERE lc.prompt_version = :prompt_version
+                  AND COALESCE(r.posted_at, r.fetched_at)
+                      >= now() - make_interval(weeks => :weeks)
+            ),
+            totals AS (SELECT week, count(*) AS total FROM dated GROUP BY week)
+            SELECT d.week, skill, count(*) AS n, t.total
+            FROM dated d
+            CROSS JOIN LATERAL unnest(d.skills) AS skill
+            JOIN totals t ON t.week = d.week
+            WHERE skill = ANY(:skills)
+            GROUP BY d.week, skill, t.total
+            ORDER BY 1, 2
+        """)
+        params["prompt_version"] = PROMPT_VERSION
+    rows = (await db.execute(stmt, params)).all()
 
     by_skill: dict[str, list[SkillWeekPoint]] = defaultdict(list)
     for row in rows:
@@ -203,4 +277,4 @@ async def trends_skill_history(
         SkillHistorySeries(skill=skill, data=by_skill.get(skill, []))
         for skill in skills
     ]
-    return SkillHistoryResponse(series=series)
+    return SkillHistoryResponse(series=series, source=source)

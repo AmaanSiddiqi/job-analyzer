@@ -7,7 +7,9 @@ taxonomy is missing, ordered by how much it would buy.
 """
 
 import logging
+from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -64,3 +66,60 @@ async def normalize_and_record(
     if unmapped:
         await record_unmapped(db, unmapped)
     return mapped
+
+
+def extracted_skill_match(skill: str):
+    """`job_postings` rows whose *extracted* components carry this skill.
+
+    The two tables are joined on source_url: job_postings is the live feed,
+    listing_components hangs off raw_listings. Uses the GIN index on
+    listing_components.skills (array containment) and the source_url index
+    added in migration 0008.
+    """
+    from sqlalchemy import exists, select
+
+    from ..extraction.prompts import PROMPT_VERSION
+    from ..models import JobPosting, ListingComponent, RawListing
+
+    return exists(
+        select(ListingComponent.id)
+        .join(RawListing, RawListing.id == ListingComponent.raw_listing_id)
+        .where(RawListing.source_url == JobPosting.source_url)
+        .where(ListingComponent.prompt_version == PROMPT_VERSION)
+        .where(ListingComponent.skills.contains([skill.lower()]))
+    )
+
+
+async def attach_extracted_skills(db: Any, jobs: "Sequence[Any]") -> None:
+    """Replace each posting's baseline skills with its extracted ones, in place.
+
+    Every skill chip in the UI is a filter link, and in extracted mode the
+    filter matches extracted skills — so a chip from the baseline vocabulary
+    would be a dead click ("go" on a posting that only says "go to market").
+    One extra query per page, keyed by source_url.
+
+    Postings with no extraction yet (aggregator rows, stale postings, anything
+    ingested since the last batch) keep their baseline skills rather than
+    rendering empty.
+    """
+    from sqlalchemy import select
+
+    from ..extraction.prompts import PROMPT_VERSION
+    from ..models import ListingComponent, RawListing
+
+    urls = [job.source_url for job in jobs]
+    if not urls:
+        return
+    rows = (
+        await db.execute(
+            select(RawListing.source_url, ListingComponent.skills)
+            .join(ListingComponent, ListingComponent.raw_listing_id == RawListing.id)
+            .where(RawListing.source_url.in_(urls))
+            .where(ListingComponent.prompt_version == PROMPT_VERSION)
+        )
+    ).all()
+    by_url = {row.source_url: row.skills for row in rows}
+    for job in jobs:
+        extracted = by_url.get(job.source_url)
+        if extracted is not None:
+            job.skills = extracted
